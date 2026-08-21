@@ -106,6 +106,35 @@ interface AppStrings {
     val readingModeLTR: String
     val readingModeRTL: String
     val selectReadingModeTitle: String
+    val readerSettings: String
+    val readerMode: String
+    val readerBackground: String
+    val readerScale: String
+    val readerScaleFitWidth: String
+    val readerScaleFitHeight: String
+    val readerScaleFitScreen: String
+    val readerScaleOriginal: String
+    val readerBgBlack: String
+    val readerBgDarkGray: String
+    val readerBgWhite: String
+    val previousChapter: String
+    val nextChapter: String
+    val chapterList: String
+    val searchChapters: String
+    val endOfChapter: String
+    val finishedChapter: String
+    val goToNextChapter: String
+    val goToPreviousChapter: String
+    val noMoreChapters: String
+    val goToPage: String
+    val pageIndicator: String
+    val pageIndicatorDesc: String
+    val pageFailedToLoad: String
+    val tapToRetry: String
+    val keepScreenOn: String
+    val keepScreenOnDesc: String
+    val cropBorders: String
+    val cropBordersDesc: String
     val pinnedSourcesTitle: String
     val noPinnedSources: String
     val clearAllPinned: String
@@ -323,6 +352,35 @@ object ArabicStrings : AppStrings {
     override val readingModeLTR = "من اليسار إلى اليمين"
     override val readingModeRTL = "من اليمين إلى اليسار"
     override val selectReadingModeTitle = "اختر نمط القراءة"
+    override val readerSettings = "إعدادات القارئ"
+    override val readerMode = "نمط القراءة"
+    override val readerBackground = "لون الخلفية"
+    override val readerScale = "ملاءمة وحجم الصور"
+    override val readerScaleFitWidth = "ملاءمة العرض"
+    override val readerScaleFitHeight = "ملاءمة الارتفاع"
+    override val readerScaleFitScreen = "ملاءمة الشاشة"
+    override val readerScaleOriginal = "الحجم الأصلي"
+    override val readerBgBlack = "أسود AMOLED"
+    override val readerBgDarkGray = "رمادي داكن"
+    override val readerBgWhite = "أبيض"
+    override val previousChapter = "الفصل السابق"
+    override val nextChapter = "الفصل التالي"
+    override val chapterList = "قائمة الفصول"
+    override val searchChapters = "البحث في الفصول..."
+    override val endOfChapter = "نهاية الفصل"
+    override val finishedChapter = "أتممت قراءة هذا الفصل بنجاح"
+    override val goToNextChapter = "الانتقال إلى الفصل التالي"
+    override val goToPreviousChapter = "العودة إلى الفصل السابق"
+    override val noMoreChapters = "وصلت إلى أحدث فصل متوفر"
+    override val goToPage = "الانتقال إلى صفحة"
+    override val pageIndicator = "مؤشر رقم الصفحة"
+    override val pageIndicatorDesc = "إظهار فقاعة رقم الصفحة والوقت أثناء القراءة"
+    override val pageFailedToLoad = "فشل تحميل هذه الصفحة"
+    override val tapToRetry = "اضغط لإعادة المحاولة"
+    override val keepScreenOn = "إبقاء الشاشة قيد التشغيل"
+    override val keepScreenOnDesc = "منع إيقاف تشغيل الشاشة تلقائياً أثناء القراءة"
+    override val cropBorders = "قص الحواف والهوامش البيضاء"
+    override val cropBordersDesc = "إزالة الهوامش الفارغة المحيطة بالصفحات تلقائياً"
     override val pinnedSourcesTitle = "المصادر المثبتة"
     override val noPinnedSources = "لا توجد مصادر مثبتة حالياً"
     override val clearAllPinned = "إلغاء تثبيت الكل"
@@ -540,6 +598,35 @@ object EnglishStrings : AppStrings {
     override val readingModeLTR = "Left to Right"
     override val readingModeRTL = "Right to Left"
     override val selectReadingModeTitle = "Select Reading Mode"
+    override val readerSettings = "Reader Settings"
+    override val readerMode = "Reading Mode"
+    override val readerBackground = "Background Color"
+    override val readerScale = "Image Scaling"
+    override val readerScaleFitWidth = "Fit Width"
+    override val readerScaleFitHeight = "Fit Height"
+    override val readerScaleFitScreen = "Fit Screen"
+    override val readerScaleOriginal = "Original Size"
+    override val readerBgBlack = "AMOLED Black"
+    override val readerBgDarkGray = "Dark Gray"
+    override val readerBgWhite = "White"
+    override val previousChapter = "Previous Chapter"
+    override val nextChapter = "Next Chapter"
+    override val chapterList = "Chapter List"
+    override val searchChapters = "Search chapters..."
+    override val endOfChapter = "End of Chapter"
+    override val finishedChapter = "You have completed this chapter"
+    override val goToNextChapter = "Go to Next Chapter"
+    override val goToPreviousChapter = "Go to Previous Chapter"
+    override val noMoreChapters = "You are on the latest chapter"
+    override val goToPage = "Go to Page"
+    override val pageIndicator = "Page Number Indicator"
+    override val pageIndicatorDesc = "Show floating page bubble and clock while reading"
+    override val pageFailedToLoad = "Page failed to load"
+    override val tapToRetry = "Tap to retry"
+    override val keepScreenOn = "Keep Screen On"
+    override val keepScreenOnDesc = "Prevent device screen from sleeping while reading"
+    override val cropBorders = "Crop Image Borders"
+    override val cropBordersDesc = "Automatically trim empty white borders around pages"
     override val pinnedSourcesTitle = "Pinned Sources"
     override val noPinnedSources = "No sources pinned yet"
     override val clearAllPinned = "Clear All Pinned"

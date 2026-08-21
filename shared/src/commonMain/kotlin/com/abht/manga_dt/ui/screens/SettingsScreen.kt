@@ -38,6 +38,8 @@ import com.abht.manga_dt.data.Strings
 import com.abht.manga_dt.data.ThemeMode
 import com.abht.manga_dt.data.ThemePreset
 import com.abht.manga_dt.ui.models.LayoutMode
+import com.abht.manga_dt.ui.models.ReaderBackground
+import com.abht.manga_dt.ui.models.ReaderScaleMode
 import com.abht.manga_dt.ui.models.ReadingMode
 
 enum class SettingsCategory(
@@ -465,11 +467,50 @@ fun CategoryDetailContent(
                     ReadingMode.RTL -> strings.readingModeRTL
                 }
 
+                val currentBgLabel = when (AppSettings.readerBackground) {
+                    ReaderBackground.BLACK -> strings.readerBgBlack
+                    ReaderBackground.DARK_GRAY -> strings.readerBgDarkGray
+                    ReaderBackground.WHITE -> strings.readerBgWhite
+                }
+
+                val currentScaleLabel = when (AppSettings.readerScaleMode) {
+                    ReaderScaleMode.FIT_WIDTH -> strings.readerScaleFitWidth
+                    ReaderScaleMode.FIT_SCREEN -> strings.readerScaleFitScreen
+                    ReaderScaleMode.FIT_HEIGHT -> strings.readerScaleFitHeight
+                    ReaderScaleMode.ORIGINAL -> strings.readerScaleOriginal
+                }
+
                 SettingsRowClickable(
                     title = strings.defaultReadingMode,
                     subtitle = currentReadingModeLabel,
                     icon = Icons.AutoMirrored.Filled.MenuBook,
                     onClick = { showReadingModeDialog = true }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), modifier = Modifier.padding(vertical = 4.dp))
+
+                SettingsRowSwitch(
+                    title = strings.pageIndicator,
+                    subtitle = strings.pageIndicatorDesc,
+                    icon = Icons.Default.Filter1,
+                    checked = AppSettings.showPageNumberPill,
+                    onCheckedChange = { AppSettings.updateShowPageNumberPill(it) }
+                )
+
+                SettingsRowSwitch(
+                    title = strings.keepScreenOn,
+                    subtitle = strings.keepScreenOnDesc,
+                    icon = Icons.Default.BrightnessMedium,
+                    checked = AppSettings.readerKeepScreenOn,
+                    onCheckedChange = { AppSettings.updateReaderKeepScreenOn(it) }
+                )
+
+                SettingsRowSwitch(
+                    title = strings.cropBorders,
+                    subtitle = strings.cropBordersDesc,
+                    icon = Icons.Default.Crop,
+                    checked = AppSettings.readerCropBorders,
+                    onCheckedChange = { AppSettings.updateReaderCropBorders(it) }
                 )
             }
 

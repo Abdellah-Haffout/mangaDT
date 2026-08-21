@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -14,33 +15,48 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.abht.manga_dt.data.AppSettings
+import com.abht.manga_dt.data.HistoryManager
+import com.abht.manga_dt.data.LibraryManager
+import com.abht.manga_dt.data.MangaDataCache
 import com.abht.manga_dt.data.MangaSourceManager
+import com.abht.manga_dt.data.StatisticsManager
+import com.abht.manga_dt.data.Strings
+import com.abht.manga_dt.data.currentTimeMillis
+import com.abht.manga_dt.models.Chapter
+import com.abht.manga_dt.models.LibraryManga
 import com.abht.manga_dt.models.ReaderPage
 import com.abht.manga_dt.ui.models.ReaderBackground
 import com.abht.manga_dt.ui.models.ReaderScaleMode
 import com.abht.manga_dt.ui.models.ReadingMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,24 +71,28 @@ fun ReaderScreen(
     mangaUrl: String = "",
     initialPages: List<ReaderPage> = emptyList(),
     onBack: () -> Unit,
-    onChapterChange: ((newChapter: com.abht.manga_dt.models.Chapter) -> Unit)? = null,
+    onChapterChange: ((newChapter: Chapter) -> Unit)? = null,
     onPreviousChapter: (() -> Unit)? = null,
     onNextChapter: (() -> Unit)? = null
 ) {
+    val strings = Strings.current
     val sourceManager = remember { MangaSourceManager() }
     val coroutineScope = rememberCoroutineScope()
+
     var pages by remember(sourceId, chapterUrl) { mutableStateOf(initialPages) }
     var isLoadingPages by remember(sourceId, chapterUrl) { mutableStateOf(chapterUrl.isNotBlank() && initialPages.isEmpty()) }
     var pageLoadError by remember(sourceId, chapterUrl) { mutableStateOf<String?>(null) }
     var showControls by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
-    var hasJumpedToInitialPage by remember(sourceId, chapterUrl) { mutableStateOf(false) }
+    var showChapterListSheet by remember { mutableStateOf(false) }
+    var showGoToPageDialog by remember { mutableStateOf(false) }
+    var isReadyToTrackProgress by remember(sourceId, chapterUrl) { mutableStateOf(false) }
 
     // Dynamic chapter lookup from cache
     val cachedManga = remember(mangaUrl, sourceId, title) {
-        (if (mangaUrl.isNotBlank()) com.abht.manga_dt.data.MangaDataCache.cachedMangaDetails["$sourceId::$mangaUrl"] else null)
-            ?: com.abht.manga_dt.data.MangaDataCache.cachedMangaDetails.values.firstOrNull { m -> 
-                m.title.equals(title, ignoreCase = true) || m.chapters.any { it.url == chapterUrl || it.title == chapterTitle } 
+        (if (mangaUrl.isNotBlank()) MangaDataCache.cachedMangaDetails["$sourceId::$mangaUrl"] else null)
+            ?: MangaDataCache.cachedMangaDetails.values.firstOrNull { m ->
+                m.title.equals(title, ignoreCase = true) || m.chapters.any { it.url == chapterUrl || it.title == chapterTitle }
             }
     }
     val allMangaChapters = remember(cachedManga) {
@@ -88,6 +108,14 @@ fun ReaderScreen(
         if (currentChapterIndex in 0 until allMangaChapters.size - 1) allMangaChapters[currentChapterIndex + 1] else null
     }
 
+    // Favorite Status in Library
+    val isFavorite = remember(LibraryManager.libraryItems, sourceId, mangaUrl, title) {
+        LibraryManager.libraryItems.any {
+            it.sourceId == sourceId && (it.mangaUrl == mangaUrl || it.title.equals(title, ignoreCase = true))
+        }
+    }
+
+    // Load pages effect
     LaunchedEffect(sourceId, chapterUrl) {
         if (chapterUrl.isNotBlank() && initialPages.isEmpty()) {
             isLoadingPages = true
@@ -97,10 +125,10 @@ fun ReaderScreen(
                 if (fetchedPages.isNotEmpty()) {
                     pages = fetchedPages
                 } else {
-                    pageLoadError = "No pages found for this chapter"
+                    pageLoadError = strings.pageFailedToLoad
                 }
             } catch (e: Exception) {
-                pageLoadError = e.message ?: "Failed to load chapter pages"
+                pageLoadError = e.message ?: strings.pageFailedToLoad
             } finally {
                 isLoadingPages = false
             }
@@ -111,10 +139,11 @@ fun ReaderScreen(
     val readerBackground = AppSettings.readerBackground
     val readerScaleMode = AppSettings.readerScaleMode
     val showPagePill = AppSettings.showPageNumberPill
+    val cropBorders = AppSettings.readerCropBorders
 
     val backgroundColor = when (readerBackground) {
         ReaderBackground.BLACK -> Color(0xFF000000)
-        ReaderBackground.DARK_GRAY -> Color(0xFF1E1E1E)
+        ReaderBackground.DARK_GRAY -> Color(0xFF141414)
         ReaderBackground.WHITE -> Color(0xFFFFFFFF)
     }
 
@@ -136,7 +165,7 @@ fun ReaderScreen(
         pageCount = { totalPages }
     )
 
-    // Track current page index accurately based on visible viewport center
+    // Track current page index accurately based on viewport center
     val currentPageIndex by remember(readingMode, totalPages) {
         derivedStateOf {
             when (readingMode) {
@@ -192,29 +221,33 @@ fun ReaderScreen(
         }
     }
 
-    var isReadyToTrackProgress by remember(sourceId, chapterUrl) { mutableStateOf(false) }
+    fun navigateToChapter(chapter: Chapter) {
+        if (onChapterChange != null) {
+            onChapterChange(chapter)
+        }
+    }
 
-    // Auto-jump to initial page and exact scroll offset when chapter pages are loaded
+    // Auto-jump to initial page and scroll offset when loaded
     LaunchedEffect(pages, initialPage, initialScrollOffset) {
         if (pages.isNotEmpty()) {
             if (initialPage > 1 || initialScrollOffset > 0) {
                 val targetIdx = (initialPage - 1).coerceIn(0, pages.size - 1)
-                kotlinx.coroutines.delay(80)
+                delay(80)
                 when (readingMode) {
                     ReadingMode.WEBTOON -> listState.scrollToItem(targetIdx, initialScrollOffset.coerceAtLeast(0))
                     ReadingMode.RTL -> pagerState.scrollToPage((pages.size - 1) - targetIdx)
                     ReadingMode.LTR, ReadingMode.VERTICAL_PAGED -> pagerState.scrollToPage(targetIdx)
                 }
-                kotlinx.coroutines.delay(100)
+                delay(100)
             }
             isReadyToTrackProgress = true
         }
     }
 
-    // Live progress saving to History and Library ONLY after initial jump is ready
+    // Live progress saving to History and Library
     LaunchedEffect(currentPageIndex, currentScrollOffset, isReadyToTrackProgress, pages.size, chapterUrl) {
         if (isReadyToTrackProgress && pages.isNotEmpty() && chapterUrl.isNotBlank()) {
-            com.abht.manga_dt.data.HistoryManager.updatePageProgress(
+            HistoryManager.updatePageProgress(
                 mangaTitle = title,
                 chapterUrl = chapterUrl,
                 page = currentPageIndex,
@@ -222,7 +255,7 @@ fun ReaderScreen(
                 scrollOffset = currentScrollOffset
             )
             if (mangaUrl.isNotBlank()) {
-                com.abht.manga_dt.data.LibraryManager.updateProgress(
+                LibraryManager.updateProgress(
                     mangaUrl = mangaUrl,
                     title = title,
                     chapterTitle = chapterTitle,
@@ -232,24 +265,23 @@ fun ReaderScreen(
         }
     }
 
-    // --- Fine-grained Reading Analytics Tracking (100% Local & Offline) ---
-    var lastActiveTime by remember { mutableStateOf(com.abht.manga_dt.data.currentTimeMillis()) }
+    // Reading Analytics Tracker (100% Local & Offline)
+    var lastActiveTime by remember { mutableStateOf(currentTimeMillis()) }
     var lastRecordedPage by remember { mutableStateOf(initialPage) }
     val mangaTags = remember(cachedManga) { cachedManga?.tags ?: emptyList() }
     val mangaCover = remember(cachedManga) { cachedManga?.thumbnailUrl ?: "" }
 
-    // Real-time active reading stopwatch (every 5 seconds)
     LaunchedEffect(title, chapterUrl, isReadyToTrackProgress) {
         if (isReadyToTrackProgress) {
-            var lastTick = com.abht.manga_dt.data.currentTimeMillis()
+            var lastTick = currentTimeMillis()
             while (true) {
-                kotlinx.coroutines.delay(5000)
-                val now = com.abht.manga_dt.data.currentTimeMillis()
+                delay(5000)
+                val now = currentTimeMillis()
                 val idleDuration = now - lastActiveTime
-                if (idleDuration < 90_000) { // Active within last 90 seconds
+                if (idleDuration < 90_000) {
                     val elapsedSeconds = ((now - lastTick) / 1000L).coerceIn(1L, 10L)
                     val isCompleted = currentPageIndex >= totalPages && totalPages > 1
-                    com.abht.manga_dt.data.StatisticsManager.recordReadingSession(
+                    StatisticsManager.recordReadingSession(
                         mangaTitle = title,
                         mangaCover = mangaCover,
                         sourceId = sourceId,
@@ -265,14 +297,13 @@ fun ReaderScreen(
         }
     }
 
-    // Page turn & chapter completion tracker
     LaunchedEffect(currentPageIndex, isReadyToTrackProgress) {
         if (isReadyToTrackProgress && currentPageIndex != lastRecordedPage) {
-            lastActiveTime = com.abht.manga_dt.data.currentTimeMillis()
+            lastActiveTime = currentTimeMillis()
             val deltaPages = (currentPageIndex - lastRecordedPage).let { if (it > 0) it else 1 }
             lastRecordedPage = currentPageIndex
             val isCompleted = currentPageIndex >= totalPages && totalPages > 1
-            com.abht.manga_dt.data.StatisticsManager.recordReadingSession(
+            StatisticsManager.recordReadingSession(
                 mangaTitle = title,
                 mangaCover = mangaCover,
                 sourceId = sourceId,
@@ -288,12 +319,16 @@ fun ReaderScreen(
     fun nextPage() {
         if (currentPageIndex < totalPages) {
             jumpToPage(currentPageIndex + 1)
+        } else if (resolvedNextChapter != null && onChapterChange != null) {
+            navigateToChapter(resolvedNextChapter)
         }
     }
 
     fun prevPage() {
         if (currentPageIndex > 1) {
             jumpToPage(currentPageIndex - 1)
+        } else if (resolvedPrevChapter != null && onChapterChange != null) {
+            navigateToChapter(resolvedPrevChapter)
         }
     }
 
@@ -304,40 +339,72 @@ fun ReaderScreen(
     ) {
         if (isLoadingPages) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(16.dp))
-                    Text("Loading chapter pages...", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Text(
+                        text = strings.loadingManga,
+                        color = if (readerBackground == ReaderBackground.WHITE) Color.DarkGray else Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         } else if (pageLoadError != null && pages.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
+                Card(
+                    modifier = Modifier.padding(24.dp).fillMaxWidth(0.9f),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
                 ) {
-                    Text(pageLoadError ?: "Error loading pages", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = {
-                        coroutineScope.launch {
-                            isLoadingPages = true
-                            pageLoadError = null
-                            try {
-                                val fetched = sourceManager.getPages(sourceId, chapterUrl)
-                                if (fetched.isNotEmpty()) pages = fetched else pageLoadError = "No pages found"
-                            } catch (e: Exception) {
-                                pageLoadError = e.message
-                            } finally {
-                                isLoadingPages = false
-                            }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CloudOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = pageLoadError ?: strings.pageFailedToLoad,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    isLoadingPages = true
+                                    pageLoadError = null
+                                    try {
+                                        val fetched = sourceManager.getPages(sourceId, chapterUrl)
+                                        if (fetched.isNotEmpty()) pages = fetched else pageLoadError = strings.pageFailedToLoad
+                                    } catch (e: Exception) {
+                                        pageLoadError = e.message
+                                    } finally {
+                                        isLoadingPages = false
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(strings.retry)
                         }
-                    }) {
-                        Text("Retry")
                     }
                 }
             }
         } else {
-            // --- Main Reader Content ---
+            // --- Main Reader Content Area ---
             when (readingMode) {
                 ReadingMode.WEBTOON -> {
                     LazyColumn(
@@ -358,130 +425,162 @@ fun ReaderScreen(
                                 page = page,
                                 contentScale = contentScale,
                                 modifier = Modifier.fillMaxWidth(),
-                                isWebtoon = true
+                                isWebtoon = true,
+                                cropBorders = cropBorders
+                            )
+                        }
+
+                        // Kotatsu End of Chapter Transition Banner in Webtoon
+                        item {
+                            EndOfChapterCard(
+                                chapterTitle = chapterTitle,
+                                nextChapter = resolvedNextChapter,
+                                prevChapter = resolvedPrevChapter,
+                                onNextClick = { if (resolvedNextChapter != null) navigateToChapter(resolvedNextChapter) },
+                                onPrevClick = { if (resolvedPrevChapter != null) navigateToChapter(resolvedPrevChapter) },
+                                onBack = onBack
                             )
                         }
                     }
                 }
-            ReadingMode.RTL -> {
-                // Japanese Manga (Right-to-Left)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { offset ->
-                                    val width = size.width
-                                    when {
-                                        offset.x < width * 0.25f -> nextPage()      // Tap Left = Next in RTL
-                                        offset.x > width * 0.75f -> prevPage()      // Tap Right = Prev in RTL
-                                        else -> showControls = !showControls       // Center = Toggle UI
+                ReadingMode.RTL -> {
+                    // Japanese Manga (Right-to-Left)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { offset ->
+                                        val width = size.width
+                                        when {
+                                            offset.x < width * 0.25f -> nextPage()
+                                            offset.x > width * 0.75f -> prevPage()
+                                            else -> showControls = !showControls
+                                        }
                                     }
-                                }
-                            )
-                        }
-                ) {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        reverseLayout = true
-                    ) { pageIdx ->
-                        val page = pages.getOrNull(pageIdx)
-                        if (page != null) {
-                            ReaderImageItem(
-                                page = page,
-                                contentScale = contentScale,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                                )
+                            }
+                    ) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            reverseLayout = true
+                        ) { pageIdx ->
+                            val page = pages.getOrNull(pageIdx)
+                            if (page != null) {
+                                ReaderImageItem(
+                                    page = page,
+                                    contentScale = contentScale,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cropBorders = cropBorders
+                                )
+                            }
                         }
                     }
                 }
-            }
-            ReadingMode.LTR -> {
-                // Comics / Western Manhwa (Left-to-Right)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { offset ->
-                                    val width = size.width
-                                    when {
-                                        offset.x < width * 0.25f -> prevPage()      // Tap Left = Prev in LTR
-                                        offset.x > width * 0.75f -> nextPage()      // Tap Right = Next in LTR
-                                        else -> showControls = !showControls       // Center = Toggle UI
+                ReadingMode.LTR -> {
+                    // Comics / Manhwa (Left-to-Right)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { offset ->
+                                        val width = size.width
+                                        when {
+                                            offset.x < width * 0.25f -> prevPage()
+                                            offset.x > width * 0.75f -> nextPage()
+                                            else -> showControls = !showControls
+                                        }
                                     }
-                                }
-                            )
-                        }
-                ) {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize()
-                    ) { pageIdx ->
-                        val page = pages.getOrNull(pageIdx)
-                        if (page != null) {
-                            ReaderImageItem(
-                                page = page,
-                                contentScale = contentScale,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                                )
+                            }
+                    ) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { pageIdx ->
+                            val page = pages.getOrNull(pageIdx)
+                            if (page != null) {
+                                ReaderImageItem(
+                                    page = page,
+                                    contentScale = contentScale,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cropBorders = cropBorders
+                                )
+                            }
                         }
                     }
                 }
-            }
-            ReadingMode.VERTICAL_PAGED -> {
-                // Single Page Vertical
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { showControls = !showControls }
-                            )
-                        }
-                ) {
-                    VerticalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize()
-                    ) { pageIdx ->
-                        val page = pages.getOrNull(pageIdx)
-                        if (page != null) {
-                            ReaderImageItem(
-                                page = page,
-                                contentScale = contentScale,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                ReadingMode.VERTICAL_PAGED -> {
+                    // Single Page Vertical
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { showControls = !showControls }
+                                )
+                            }
+                    ) {
+                        VerticalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { pageIdx ->
+                            val page = pages.getOrNull(pageIdx)
+                            if (page != null) {
+                                ReaderImageItem(
+                                    page = page,
+                                    contentScale = contentScale,
+                                    modifier = Modifier.fillMaxSize(),
+                                    cropBorders = cropBorders
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-        // --- Floating Page Number Pill (when controls are hidden) ---
+        // --- Kotatsu Floating HUD / Status Capsule (when controls are hidden) ---
         AnimatedVisibility(
             visible = !showControls && showPagePill && pages.isNotEmpty(),
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(180)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp)
+                .padding(bottom = 16.dp)
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.65f),
-                contentColor = Color.White
+                color = Color(0xDD121316),
+                contentColor = Color.White,
+                shadowElevation = 4.dp
             ) {
-                Text(
-                    text = "$currentPageIndex / $totalPages",
-                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "$currentPageIndex / $totalPages",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(3.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.5f))
+                    )
+                    Text(
+                        text = readingMode.label,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                    )
+                }
             }
         }
 
-        // --- Top Bar Controls Overlay ---
+        // --- Kotatsu Floating Glassmorphic Top Bar ---
         AnimatedVisibility(
             visible = showControls,
             enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
@@ -490,8 +589,9 @@ fun ReaderScreen(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color.Black.copy(alpha = 0.85f),
-                contentColor = Color.White
+                color = Color(0xEE121316),
+                contentColor = Color.White,
+                tonalElevation = 8.dp
             ) {
                 Row(
                     modifier = Modifier
@@ -503,7 +603,7 @@ fun ReaderScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = strings.close,
                             tint = Color.White
                         )
                     }
@@ -511,7 +611,7 @@ fun ReaderScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 6.dp)
                     ) {
                         Text(
                             text = title,
@@ -521,16 +621,61 @@ fun ReaderScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = chapterTitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.75f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = chapterTitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.8f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (sourceId.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                ) {
+                                    Text(
+                                        text = sourceId.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 1. Quick Add to Library / Favorite Toggle
+                    IconButton(
+                        onClick = {
+                            if (isFavorite) {
+                                LibraryManager.removeFromLibrary(mangaUrl = mangaUrl, title = title)
+                            } else {
+                                LibraryManager.addToLibrary(
+                                    LibraryManga(
+                                        id = if (mangaUrl.isNotBlank()) "$sourceId::$mangaUrl" else "$sourceId::$title",
+                                        title = title,
+                                        thumbnailUrl = mangaCover,
+                                        sourceId = sourceId,
+                                        mangaUrl = mangaUrl,
+                                        category = "Default",
+                                        addedAt = currentTimeMillis()
+                                    )
+                                )
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFavorite) Color(0xFFFF4081) else Color.White
                         )
                     }
 
-                    // Quick Reading Mode Toggle Button
+                    // 2. Quick Reading Mode Cycle Icon
                     IconButton(onClick = {
                         val nextMode = when (readingMode) {
                             ReadingMode.WEBTOON -> ReadingMode.RTL
@@ -538,7 +683,12 @@ fun ReaderScreen(
                             ReadingMode.LTR -> ReadingMode.VERTICAL_PAGED
                             ReadingMode.VERTICAL_PAGED -> ReadingMode.WEBTOON
                         }
+                        val cur = currentPageIndex
                         AppSettings.updateReadingMode(nextMode)
+                        coroutineScope.launch {
+                            delay(60)
+                            jumpToPage(cur)
+                        }
                     }) {
                         Icon(
                             imageVector = when (readingMode) {
@@ -547,16 +697,25 @@ fun ReaderScreen(
                                 ReadingMode.LTR -> Icons.Default.SwapHoriz
                                 ReadingMode.VERTICAL_PAGED -> Icons.Default.ViewAgenda
                             },
-                            contentDescription = "Reading Mode",
+                            contentDescription = strings.readerMode,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
-                    // Reader Settings Button
+                    // 3. Quick Chapters List Drawer Trigger
+                    IconButton(onClick = { showChapterListSheet = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ViewList,
+                            contentDescription = strings.chapterList,
+                            tint = Color.White
+                        )
+                    }
+
+                    // 4. Reader Settings Button
                     IconButton(onClick = { showSettingsSheet = true }) {
                         Icon(
                             Icons.Default.Tune,
-                            contentDescription = "Reader Settings",
+                            contentDescription = strings.readerSettings,
                             tint = Color.White
                         )
                     }
@@ -564,7 +723,7 @@ fun ReaderScreen(
             }
         }
 
-        // --- Bottom Bar Controls Overlay (Kotatsu Style) ---
+        // --- Kotatsu Floating Glassmorphic Bottom Bar ---
         AnimatedVisibility(
             visible = showControls,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -573,8 +732,9 @@ fun ReaderScreen(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color.Black.copy(alpha = 0.85f),
-                contentColor = Color.White
+                color = Color(0xEE121316),
+                contentColor = Color.White,
+                tonalElevation = 8.dp
             ) {
                 Column(
                     modifier = Modifier
@@ -582,19 +742,23 @@ fun ReaderScreen(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Page Scrubbing Slider with indicator
+                    // A. Page Scrubber Slider with Direct Jump Tappable Badges
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "$currentPageIndex",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.width(32.dp),
-                            textAlign = TextAlign.Center
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            onClick = { showGoToPageDialog = true }
+                        ) {
+                            Text(
+                                text = "$currentPageIndex",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
 
                         Slider(
                             value = currentPageIndex.toFloat(),
@@ -609,203 +773,568 @@ fun ReaderScreen(
                             colors = SliderDefaults.colors(
                                 thumbColor = MaterialTheme.colorScheme.primary,
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                inactiveTrackColor = Color.White.copy(alpha = 0.25f)
                             )
                         )
 
-                        Text(
-                            text = "$totalPages",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier.width(32.dp),
-                            textAlign = TextAlign.Center
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.1f),
+                            onClick = { jumpToPage(totalPages) }
+                        ) {
+                            Text(
+                                text = "$totalPages",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                                color = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(6.dp))
 
-                    // Chapter navigation and Quick Mode bar
+                    // B. Kotatsu Chapter Navigation Toolbar
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Previous Chapter
-                        // Previous Chapter
                         val hasPrev = onPreviousChapter != null || (resolvedPrevChapter != null && onChapterChange != null)
-                        TextButton(
-                            onClick = { 
+                        FilledTonalButton(
+                            onClick = {
                                 if (onPreviousChapter != null) onPreviousChapter.invoke()
                                 else if (resolvedPrevChapter != null && onChapterChange != null) onChapterChange(resolvedPrevChapter)
                             },
                             enabled = hasPrev,
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Prev")
+                            Text(strings.previousChapter, fontSize = 12.sp)
                         }
 
-                        // Current Mode Label Chip
+                        // Quick Chapter Selector Center Pill
                         Surface(
                             shape = CircleShape,
                             color = Color.White.copy(alpha = 0.15f),
-                            onClick = { showSettingsSheet = true }
+                            onClick = { showChapterListSheet = true }
                         ) {
-                            Text(
-                                text = readingMode.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                val chapterCountText = if (allMangaChapters.isNotEmpty() && currentChapterIndex >= 0) {
+                                    "${currentChapterIndex + 1} / ${allMangaChapters.size}"
+                                } else {
+                                    chapterTitle
+                                }
+                                Text(
+                                    text = chapterCountText,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
 
                         // Next Chapter
                         val hasNext = onNextChapter != null || (resolvedNextChapter != null && onChapterChange != null)
-                        TextButton(
-                            onClick = { 
+                        Button(
+                            onClick = {
                                 if (onNextChapter != null) onNextChapter.invoke()
                                 else if (resolvedNextChapter != null && onChapterChange != null) onChapterChange(resolvedNextChapter)
                             },
                             enabled = hasNext,
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text("Next")
+                            Text(strings.nextChapter, fontSize = 12.sp)
                             Spacer(Modifier.width(4.dp))
-                            Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
             }
         }
 
-        // --- Kotatsu Reader Settings BottomSheet ---
+        // --- KOTATSU CHAPTERS SELECTOR MODAL BOTTOM SHEET ---
+        if (showChapterListSheet) {
+            ChapterSelectorSheet(
+                chapters = allMangaChapters,
+                currentChapterUrl = chapterUrl,
+                onSelectChapter = { selectedChapter ->
+                    showChapterListSheet = false
+                    navigateToChapter(selectedChapter)
+                },
+                onDismiss = { showChapterListSheet = false }
+            )
+        }
+
+        // --- GO TO PAGE NUMBER DIALOG ---
+        if (showGoToPageDialog) {
+            var inputPageText by remember { mutableStateOf(currentPageIndex.toString()) }
+            AlertDialog(
+                onDismissRequest = { showGoToPageDialog = false },
+                title = { Text(strings.goToPage, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${strings.goToPage} (1 - $totalPages)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                        OutlinedTextField(
+                            value = inputPageText,
+                            onValueChange = { inputPageText = it.filter { ch -> ch.isDigit() } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    val target = inputPageText.toIntOrNull()
+                                    if (target != null) {
+                                        jumpToPage(target.coerceIn(1, totalPages))
+                                    }
+                                    showGoToPageDialog = false
+                                }
+                            ),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val target = inputPageText.toIntOrNull()
+                            if (target != null) {
+                                jumpToPage(target.coerceIn(1, totalPages))
+                            }
+                            showGoToPageDialog = false
+                        }
+                    ) {
+                        Text(strings.ok)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showGoToPageDialog = false }) {
+                        Text(strings.cancel)
+                    }
+                }
+            )
+        }
+
+        // --- KOTATSU READER SETTINGS BOTTOM SHEET ---
         if (showSettingsSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showSettingsSheet = false },
                 containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
+                tonalElevation = 8.dp
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        text = "Reader Settings",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(16.dp))
-
-                    // 1. Reading Mode
-                    Text(
-                        text = "Reading Mode",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            ReadingMode.WEBTOON to "Webtoon",
-                            ReadingMode.RTL to "Manga (RTL)",
-                            ReadingMode.LTR to "Comic (LTR)"
-                        ).forEach { (mode, label) ->
-                            FilterChip(
-                                selected = readingMode == mode,
-                                onClick = { 
-                                    val current = currentPageIndex
-                                    AppSettings.updateReadingMode(mode)
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(60)
-                                        jumpToPage(current)
-                                    }
-                                },
-                                label = { Text(label, fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // 2. Background Color
-                    Text(
-                        text = "Background Color",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            ReaderBackground.BLACK to "AMOLED Black",
-                            ReaderBackground.DARK_GRAY to "Dark Gray",
-                            ReaderBackground.WHITE to "White"
-                        ).forEach { (bg, label) ->
-                            FilterChip(
-                                selected = readerBackground == bg,
-                                onClick = { AppSettings.updateReaderBackground(bg) },
-                                label = { Text(label, fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // 3. Scale Mode
-                    Text(
-                        text = "Scale Mode",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            ReaderScaleMode.FIT_WIDTH to "Fit Width",
-                            ReaderScaleMode.FIT_SCREEN to "Fit Screen",
-                            ReaderScaleMode.FIT_HEIGHT to "Fit Height"
-                        ).forEach { (scale, label) ->
-                            FilterChip(
-                                selected = readerScaleMode == scale,
-                                onClick = { AppSettings.updateReaderScaleMode(scale) },
-                                label = { Text(label, fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // 4. Page Indicator Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("Page Number Indicator", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text("Show floating page bubble while reading", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = showPagePill,
-                            onCheckedChange = { AppSettings.updateShowPageNumberPill(it) }
+                        Text(
+                            text = strings.readerSettings,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                        IconButton(onClick = { showSettingsSheet = false }) {
+                            Icon(Icons.Default.Close, contentDescription = strings.close)
+                        }
                     }
 
-                    Spacer(Modifier.height(24.dp))
+                    // 1. Reading Mode Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = strings.readerMode,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                ReadingMode.WEBTOON to strings.readingModeWebtoon,
+                                ReadingMode.RTL to strings.readingModeRTL,
+                                ReadingMode.LTR to strings.readingModeLTR,
+                                ReadingMode.VERTICAL_PAGED to strings.readingModeVerticalPaged
+                            ).forEach { (mode, label) ->
+                                FilterChip(
+                                    selected = readingMode == mode,
+                                    onClick = {
+                                        val cur = currentPageIndex
+                                        AppSettings.updateReadingMode(mode)
+                                        coroutineScope.launch {
+                                            delay(60)
+                                            jumpToPage(cur)
+                                        }
+                                    },
+                                    label = { Text(label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Background Theme Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = strings.readerBackground,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                ReaderBackground.BLACK to strings.readerBgBlack,
+                                ReaderBackground.DARK_GRAY to strings.readerBgDarkGray,
+                                ReaderBackground.WHITE to strings.readerBgWhite
+                            ).forEach { (bg, label) ->
+                                FilterChip(
+                                    selected = readerBackground == bg,
+                                    onClick = { AppSettings.updateReaderBackground(bg) },
+                                    label = { Text(label, fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. Image Scaling Mode
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = strings.readerScale,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                ReaderScaleMode.FIT_WIDTH to strings.readerScaleFitWidth,
+                                ReaderScaleMode.FIT_SCREEN to strings.readerScaleFitScreen,
+                                ReaderScaleMode.FIT_HEIGHT to strings.readerScaleFitHeight,
+                                ReaderScaleMode.ORIGINAL to strings.readerScaleOriginal
+                            ).forEach { (scale, label) ->
+                                FilterChip(
+                                    selected = readerScaleMode == scale,
+                                    onClick = { AppSettings.updateReaderScaleMode(scale) },
+                                    label = { Text(label, fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 4. Feature Toggles
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // A. Page Indicator Pill
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(strings.pageIndicator, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(strings.pageIndicatorDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                            Switch(
+                                checked = showPagePill,
+                                onCheckedChange = { AppSettings.updateShowPageNumberPill(it) }
+                            )
+                        }
+
+                        // B. Crop Image Borders
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(strings.cropBorders, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(strings.cropBordersDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                            Switch(
+                                checked = cropBorders,
+                                onCheckedChange = { AppSettings.updateReaderCropBorders(it) }
+                            )
+                        }
+
+                        // C. Keep Screen On
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(strings.keepScreenOn, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(strings.keepScreenOnDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                            Switch(
+                                checked = AppSettings.readerKeepScreenOn,
+                                onCheckedChange = { AppSettings.updateReaderKeepScreenOn(it) }
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChapterSelectorSheet(
+    chapters: List<Chapter>,
+    currentChapterUrl: String,
+    onSelectChapter: (Chapter) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = Strings.current
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredChapters = remember(chapters, searchQuery) {
+        if (searchQuery.isBlank()) chapters
+        else chapters.filter { it.title.contains(searchQuery, ignoreCase = true) || it.chapterNumber.toString().contains(searchQuery) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = strings.chapterList,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${chapters.size} ${strings.chapters}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Search Filter
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text(strings.searchChapters, fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            if (filteredChapters.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text(strings.noMangaFound, color = MaterialTheme.colorScheme.outline)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredChapters, key = { it.url }) { ch ->
+                        val isCurrent = ch.url == currentChapterUrl
+                        Surface(
+                            onClick = { onSelectChapter(ch) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCurrent) Icons.Default.PlayCircle else Icons.AutoMirrored.Filled.MenuBook,
+                                        contentDescription = null,
+                                        tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = ch.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                        ),
+                                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (isCurrent) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary
+                                    ) {
+                                        Text(
+                                            text = "Active",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EndOfChapterCard(
+    chapterTitle: String,
+    nextChapter: Chapter?,
+    prevChapter: Chapter?,
+    onNextClick: () -> Unit,
+    onPrevClick: () -> Unit,
+    onBack: () -> Unit
+) {
+    val strings = Strings.current
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 32.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = strings.endOfChapter,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = "$chapterTitle • ${strings.finishedChapter}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+            if (nextChapter != null) {
+                Button(
+                    onClick = onNextClick,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(strings.goToNextChapter, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "🎉 ${strings.noMoreChapters}",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (prevChapter != null) {
+                    OutlinedButton(
+                        onClick = onPrevClick,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(strings.previousChapter, fontSize = 12.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onBack,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(strings.close, fontSize = 12.sp)
                 }
             }
         }
@@ -817,10 +1346,13 @@ fun ReaderImageItem(
     page: ReaderPage,
     contentScale: ContentScale,
     modifier: Modifier = Modifier,
-    isWebtoon: Boolean = false
+    isWebtoon: Boolean = false,
+    cropBorders: Boolean = false
 ) {
+    val strings = Strings.current
     var isImageLoading by remember(page.url) { mutableStateOf(true) }
     var isImageError by remember(page.url) { mutableStateOf(false) }
+    var reloadKey by remember(page.url) { mutableStateOf(0) }
 
     val imageModifier = if (isWebtoon) {
         Modifier.fillMaxWidth().wrapContentHeight()
@@ -840,36 +1372,61 @@ fun ReaderImageItem(
             )
         }
 
-        AsyncImage(
-            model = page.url,
-            contentDescription = "Page ${page.pageNumber}",
-            modifier = imageModifier,
-            contentScale = contentScale,
-            onLoading = { isImageLoading = true; isImageError = false },
-            onSuccess = { isImageLoading = false; isImageError = false },
-            onError = { isImageLoading = false; isImageError = true },
-            error = rememberVectorPainter(Icons.Default.BrokenImage)
-        )
+        key(reloadKey) {
+            AsyncImage(
+                model = page.url,
+                contentDescription = "Page ${page.pageNumber}",
+                modifier = imageModifier,
+                contentScale = contentScale,
+                onLoading = { isImageLoading = true; isImageError = false },
+                onSuccess = { isImageLoading = false; isImageError = false },
+                onError = { isImageLoading = false; isImageError = true },
+                error = rememberVectorPainter(Icons.Default.BrokenImage)
+            )
+        }
 
         if (isImageError) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(16.dp)
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                modifier = Modifier.padding(24.dp).clickable {
+                    isImageLoading = true
+                    isImageError = false
+                    reloadKey++
+                }
             ) {
-                Icon(
-                    Icons.Default.BrokenImage,
-                    contentDescription = "Failed to load page",
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(48.dp)
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Page ${page.pageNumber} failed to load",
-                    color = Color.White.copy(alpha = 0.6f),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.BrokenImage,
+                        contentDescription = strings.pageFailedToLoad,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Text(
+                        text = "${strings.pageFailedToLoad} (${page.pageNumber})",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            isImageLoading = true
+                            isImageError = false
+                            reloadKey++
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.tapToRetry, fontSize = 12.sp)
+                    }
+                }
             }
         }
     }
 }
-

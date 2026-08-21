@@ -222,6 +222,21 @@ object AppSettings {
     )
         private set
 
+    var readerKeepScreenOn: Boolean by androidx.compose.runtime.mutableStateOf(
+        SettingsStorage.getBoolean("reader_keep_screen_on", true)
+    )
+        private set
+
+    var readerCropBorders: Boolean by androidx.compose.runtime.mutableStateOf(
+        SettingsStorage.getBoolean("reader_crop_borders", false)
+    )
+        private set
+
+    var readerVolumeKeysNavigation: Boolean by androidx.compose.runtime.mutableStateOf(
+        SettingsStorage.getBoolean("reader_volume_keys", false)
+    )
+        private set
+
     fun setReaderMode(mode: com.abht.manga_dt.ui.models.ReadingMode) = updateReadingMode(mode)
 
     fun updateReadingMode(mode: com.abht.manga_dt.ui.models.ReadingMode) {
@@ -242,6 +257,21 @@ object AppSettings {
     fun updateShowPageNumberPill(show: Boolean) {
         showPageNumberPill = show
         SettingsStorage.setBoolean("reader_page_pill", show)
+    }
+
+    fun updateReaderKeepScreenOn(keep: Boolean) {
+        readerKeepScreenOn = keep
+        SettingsStorage.setBoolean("reader_keep_screen_on", keep)
+    }
+
+    fun updateReaderCropBorders(crop: Boolean) {
+        readerCropBorders = crop
+        SettingsStorage.setBoolean("reader_crop_borders", crop)
+    }
+
+    fun updateReaderVolumeKeysNavigation(enabled: Boolean) {
+        readerVolumeKeysNavigation = enabled
+        SettingsStorage.setBoolean("reader_volume_keys", enabled)
     }
 
     fun reload() {
@@ -267,6 +297,9 @@ object AppSettings {
             com.abht.manga_dt.ui.models.ReaderScaleMode.valueOf(SettingsStorage.getString("reader_scale", com.abht.manga_dt.ui.models.ReaderScaleMode.FIT_WIDTH.name))
         }.getOrDefault(com.abht.manga_dt.ui.models.ReaderScaleMode.FIT_WIDTH)
         showPageNumberPill = SettingsStorage.getBoolean("reader_page_pill", true)
+        readerKeepScreenOn = SettingsStorage.getBoolean("reader_keep_screen_on", true)
+        readerCropBorders = SettingsStorage.getBoolean("reader_crop_borders", false)
+        readerVolumeKeysNavigation = SettingsStorage.getBoolean("reader_volume_keys", false)
     }
 }
 
