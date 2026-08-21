@@ -1,0 +1,12 @@
+package com.abht.manga_dt
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class SharedCommonTest {
+
+    @Test
+    fun example() {
+        assertEquals(3, 1 + 2)
+    }
+}
