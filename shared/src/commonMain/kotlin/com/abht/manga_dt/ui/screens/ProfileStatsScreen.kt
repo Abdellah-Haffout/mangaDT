@@ -34,9 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.abht.manga_dt.data.*
-import com.abht.manga_dt.models.HistoryEntry
-import com.abht.manga_dt.models.LibraryManga
-import com.abht.manga_dt.models.MangaReadingStats
+import com.abht.manga_dt.models.*
+import com.abht.manga_dt.ui.components.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +59,7 @@ fun ProfileStatsScreen(
     val totalPagesRead = remember(mangaStats) { StatisticsManager.getTotalPagesReadCount() }
     val totalMangaCount = remember(mangaStats) { StatisticsManager.getTotalMangaCount() }
     val streakDays = remember(StatisticsManager.dailyRecordsMap) { StatisticsManager.getCurrentStreakDays() }
-    val weeklyActivity = remember(StatisticsManager.dailyRecordsMap) { StatisticsManager.getWeeklyActivityList() }
+    val weeklyActivity = remember(StatisticsManager.dailyRecordsMap) { StatisticsManager.getWeeklyActivityDetails() }
     val topGenres = remember(mangaStats) { StatisticsManager.getTopGenres() }
     val (rankTitle, rankProgress) = remember(totalTimeSeconds) { StatisticsManager.getReaderRank(totalTimeSeconds, isArabic) }
 
@@ -101,6 +100,9 @@ fun ProfileStatsScreen(
 
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showClearStatsDialog by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = showEditProfileDialog) { showEditProfileDialog = false }
+    BackHandler(enabled = showClearStatsDialog) { showClearStatsDialog = false }
 
     val heroBannerCover = remember(latestHistoryItem, favoriteMangaList) {
         latestHistoryItem?.mangaCover?.ifBlank { null }
@@ -397,7 +399,7 @@ fun ProfileStatsScreen(
 
                         // Weekly Activity Visual Chart
                         item {
-                            WeeklyActivityCard(weeklyActivity = weeklyActivity, strings = strings)
+                            WeeklyActivityCard(weeklyActivity = weeklyActivity, isArabic = isArabic, strings = strings)
                         }
 
                         // Per-Manga Detailed Stats Title & List
@@ -428,7 +430,7 @@ fun ProfileStatsScreen(
                 // =========================================================================
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 28.dp),
+                    contentPadding = PaddingValues(bottom = if (AppSettings.floatingNavBar) 88.dp else 28.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // 1. Profile Hero Card (Part 1: Profile)
@@ -686,7 +688,7 @@ fun ProfileStatsScreen(
                     // 7. Weekly Activity Chart (Part 3: Deep Analytics)
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            WeeklyActivityCard(weeklyActivity = weeklyActivity, strings = strings)
+                            WeeklyActivityCard(weeklyActivity = weeklyActivity, isArabic = isArabic, strings = strings)
                         }
                     }
 
@@ -1156,66 +1158,178 @@ private fun TasteDnaCard(
 
 @Composable
 private fun WeeklyActivityCard(
-    weeklyActivity: List<Pair<String, Long>>,
+    weeklyActivity: List<DayActivity>,
+    isArabic: Boolean,
     strings: AppStrings
 ) {
+    var showPagesMode by remember { mutableStateOf(false) }
+
+    val totalWeeklyMinutes = weeklyActivity.sumOf { it.minutes }
+    val totalWeeklyPages = weeklyActivity.sumOf { it.pages }
+
+    val maxVal = if (showPagesMode) {
+        weeklyActivity.maxOfOrNull { it.pages.toLong() }?.coerceAtLeast(10L) ?: 10L
+    } else {
+        weeklyActivity.maxOfOrNull { it.minutes }?.coerceAtLeast(10L) ?: 10L
+    }
+
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Header Row with Title and Stats Summary
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(Icons.Default.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(text = strings.weeklyActivity, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.BarChart,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = strings.weeklyActivity,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (isArabic) "إجمالي الأسبوع: $totalWeeklyMinutes د • $totalWeeklyPages صفحة"
+                            else "Weekly: ${totalWeeklyMinutes}m • $totalWeeklyPages pages",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                // Switch between Minutes and Pages
+                FilledTonalButton(
+                    onClick = { showPagesMode = !showPagesMode },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Text(
+                        text = if (showPagesMode) (if (isArabic) "صفحات" else "Pages") else (if (isArabic) "دقائق" else "Minutes"),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    )
+                }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
 
-            val maxMinutes = weeklyActivity.maxOfOrNull { it.second }?.coerceAtLeast(10L) ?: 10L
+            // Chart Bars Area
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(110.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .height(130.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.Bottom
             ) {
-                weeklyActivity.forEach { (dateKey, minutes) ->
-                    val dayLabel = dateKey.takeLast(2)
-                    val ratio = (minutes.toFloat() / maxMinutes.toFloat()).coerceIn(0.08f, 1f)
+                weeklyActivity.forEach { day ->
+                    val value = if (showPagesMode) day.pages.toLong() else day.minutes
+                    val ratio = (value.toFloat() / maxVal.toFloat()).coerceIn(0.06f, 1f)
+                    val unitLabel = if (showPagesMode) (if (isArabic) "ص" else "p") else (if (isArabic) "د" else "m")
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
                     ) {
-                        if (minutes > 0) {
+                        // Value label on top
+                        if (value > 0) {
                             Text(
-                                text = "$minutes د",
+                                text = "$value$unitLabel",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
+                                color = if (day.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Medium
                             )
-                            Spacer(Modifier.height(2.dp))
+                            Spacer(Modifier.height(3.dp))
+                        } else {
+                            Spacer(Modifier.height(16.dp))
                         }
+
+                        // Bar
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.55f)
-                                .fillMaxHeight(ratio * 0.75f)
-                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .fillMaxWidth(0.52f)
+                                .fillMaxHeight(ratio * 0.70f)
+                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
                                 .background(
-                                    if (minutes > 0) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant
+                                    if (day.isToday && value > 0) {
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.colorScheme.tertiary
+                                            )
+                                        )
+                                    } else if (value > 0) {
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                            )
+                                        )
+                                    } else {
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.surfaceVariant,
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    }
                                 )
                         )
+
                         Spacer(Modifier.height(6.dp))
+
+                        // Day name
                         Text(
-                            text = dayLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.outline
+                            text = if (isArabic) day.dayNameAr else day.dayNameEn,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.sp,
+                                fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal
+                            ),
+                            color = if (day.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        // Date number
+                        Text(
+                            text = day.dateKey.takeLast(2),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = if (day.isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
+                        )
+
+                        // Today dot indicator
+                        if (day.isToday) {
+                            Spacer(Modifier.height(2.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        } else {
+                            Spacer(Modifier.height(6.dp))
+                        }
                     }
                 }
             }

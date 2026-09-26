@@ -55,6 +55,7 @@ interface AppStrings {
     val resumeReading: String
     val inLibrary: String
     val addToLibrary: String
+    val add: String
     val chapters: String
     val noMangaFound: String
     val retry: String
@@ -100,6 +101,12 @@ interface AppStrings {
     val layoutComfortable: String
     val layoutCompact: String
     val selectLayoutTitle: String
+    val gridSizeAndLayout: String
+    val gridColumnsCount: String
+    val gridColumnsAuto: String
+    fun gridColumnsCountLabel(count: Int): String
+    val offlineAvailable: String
+    val savedOffline: String
     val defaultReadingMode: String
     val readingModeWebtoon: String
     val readingModeVerticalPaged: String
@@ -135,6 +142,10 @@ interface AppStrings {
     val keepScreenOnDesc: String
     val cropBorders: String
     val cropBordersDesc: String
+    val readerDoubleTapZoom: String
+    val readerDoubleTapZoomDesc: String
+    val readerPanSensitivity: String
+    val readerPanSensitivityDesc: String
     val pinnedSourcesTitle: String
     val noPinnedSources: String
     val clearAllPinned: String
@@ -153,6 +164,7 @@ interface AppStrings {
     val profileAndStats: String
     val totalReadingTime: String
     val chaptersRead: String
+    val read: String
     val pagesRead: String
     val mangaRead: String
     val readingStreak: String
@@ -215,6 +227,9 @@ interface AppStrings {
     val syncHistory: String
     val syncStats: String
     val syncSettings: String
+    val syncDownloads: String
+    val syncDownloadsDesc: String
+    val syncingDownloadsProgress: (current: Int, total: Int, chapterName: String) -> String
     val syncSuccess: String
     val syncFailed: String
     val syncing: String
@@ -265,6 +280,157 @@ interface AppStrings {
     val sortByLastRead: String
     val openDeepAnalytics: String
 
+    // Home Customization Strings
+    val homeCustomizationTitle: String
+    val homeCustomizationDesc: String
+    val homeDefaultSectionTitle: String
+    val homeDefaultSectionDesc: String
+    val homeCardsLayoutTitle: String
+    val homeCardsLayoutDesc: String
+    val homeContinueReadingBarTitle: String
+    val homeContinueReadingBarDesc: String
+    val homeContinueReadingLimitTitle: String
+    val homeQuickFilterPillsTitle: String
+    val homeQuickFilterPillsDesc: String
+    val homeShowFavoritesTabTitle: String
+    val homeShowFavoritesTabDesc: String
+    val homeCardCornersTitle: String
+    val homeCardCornersDesc: String
+    val homeShowSourceBadgeTitle: String
+    val homeShowSourceBadgeDesc: String
+    val homeShowRatingBadgeTitle: String
+    val homeShowRatingBadgeDesc: String
+    val homeCornerSmooth: String
+    val homeCornerMedium: String
+    val homeCornerSharp: String
+
+    // Kotatsu Exact Appearance & Main Screen Settings
+    val defaultTabTitle: String
+    val defaultTabLastUsed: String
+    val mainScreenSectionHeader: String
+    val searchSuggestionsTitle: String
+    val searchSuggestionsDesc: String
+    val mainScreenSectionsTitle: String
+    val mainScreenSectionsDesc: String
+    val showFloatingContinueBtnTitle: String
+    val showFloatingContinueBtnDesc: String
+    val showLabelsInNavBarTitle: String
+    val floatingNavBarTitle: String
+    val floatingNavBarDesc: String
+    val pinNavigationUiTitle: String
+    val pinNavigationUiDesc: String
+    val exitConfirmationTitle: String
+    val exitConfirmationDesc: String
+    val pressBackAgainToExit: String
+    val exploreMoreManga: String
+    val browseAllManga: String
+    val exploreSources: String
+
+    // Manga Details Statistics & Recommendations
+    val readingProgressTitle: String
+    val similarMangaTitle: String
+    val loadingGenreManga: String
+    val noMangaInGenre: String
+    val readCountLabel: String
+
+    // Download Manager Strings
+    val downloads: String
+    val downloadChapter: String
+    val downloaded: String
+    val downloading: String
+    val downloadQueued: String
+    val pauseAll: String
+    val resumeAll: String
+    val cancelAll: String
+    val clearCompleted: String
+    val deleteDownload: String
+    val deleteDownloadConfirm: String
+    val downloadNextChapters: String
+    val downloadAllUnread: String
+    val downloadAllChapters: String
+    val storageUsed: String
+    val noActiveDownloads: String
+    val noDownloadedManga: String
+    val offlineReadingAvailable: String
+    val downloadQueueTab: String
+    val downloadedMangaTab: String
+    val batchDownloadTitle: String
+
+    // Kotatsu Downloads Settings Strings
+    val localMangaDirectoriesTitle: String
+    val localMangaDirectoriesDesc: String
+    val downloadsFolderTitle: String
+    val internalSharedStorage: String
+    val preferredDownloadFormatTitle: String
+    val downloadFormatAuto: String
+    val downloadFormatCbz: String
+    val downloadFormatFolder: String
+    val downloadFormatZip: String
+    val downloadFormatPdf: String
+    val downloadingOverCellularTitle: String
+    val cellularAllowAlways: String
+    val cellularWifiOnly: String
+    val cellularAskEveryTime: String
+    val downloadSlowdownInfo: String
+    val disableBatteryOptimizationTitle: String
+    val disableBatteryOptimizationDesc: String
+    val savingPagesHeader: String
+    val defaultPageSaveDirTitle: String
+    val notSet: String
+    val askDestinationDirEveryTimeTitle: String
+    val autoDeleteReadChaptersTitle: String
+    val autoDeleteReadChaptersDesc: String
+    val deleteReadChaptersNowTitle: String
+    val deleteReadChaptersNowDesc: String
+    val deleteReadChaptersForManga: String
+    fun deleteReadChaptersConfirmMessage(count: Int, sizeStr: String): String
+    fun deleteReadChaptersSuccessMessage(count: Int, sizeStr: String): String
+    val noReadChaptersToDelete: String
+
+    // NSFW & Sensitive Content Privacy strings
+    val nsfwPrivacyCategoryTitle: String
+    val nsfwPrivacyCategoryDesc: String
+    val nsfwIncognitoModeTitle: String
+    val nsfwIncognitoModeDesc: String
+    val nsfwExcludeStatsTitle: String
+    val nsfwExcludeStatsDesc: String
+    val nsfwBlurCoversTitle: String
+    val nsfwBlurCoversDesc: String
+    val nsfwSeparateCategoryTitle: String
+    val nsfwSeparateCategoryDesc: String
+    val nsfwClearHistoryAndStats: String
+    val nsfwClearHistoryAndStatsDesc: String
+    val nsfwClearSuccess: String
+    val nsfwIncognitoReaderBanner: String
+    val nsfwBadgeText: String
+    val nsfwTapToReveal: String
+    val nsfwAgeConfirmTitle: String
+    val nsfwAgeConfirmMessage: String
+    val nsfwAgeConfirmButton: String
+    val readIncognito: String
+    val readFirstChapter: String
+    val readLatestChapter: String
+    val removeFromHistory: String
+    val removedFromHistory: String
+    val removeFromLibrary: String
+    val changeCategory: String
+    val markAllAsRead: String
+    val markAllAsUnread: String
+
+    // Manga Providers & Engines
+    val mangaProvidersTitle: String
+    val mangaProvidersDesc: String
+    val providerKotatsuTitle: String
+    val providerKotatsuDesc: String
+    val providerMangaSourceTitle: String
+    val providerMangaSourceDesc: String
+    val providerAtLeastOneRequired: String
+
+    fun percentCompleted(percent: Int): String
+    fun timeSpentOnManga(time: String): String
+    fun chaptersReadCount(read: Int, total: Int): String
+    fun pagesReadCount(count: Int): String
+    fun mangaWithGenreTitle(genre: String): String
     fun searchingInSource(source: String): String
     fun noResultsFor(query: String): String
     fun libraryResultsCount(count: Int): String
@@ -273,6 +439,7 @@ interface AppStrings {
     fun pageFormat(page: Int): String
     fun categoryFormat(cat: String): String
     fun languageFormat(lang: String): String
+    fun downloadNextCount(count: Int): String
 }
 
 object ArabicStrings : AppStrings {
@@ -301,6 +468,7 @@ object ArabicStrings : AppStrings {
     override val resumeReading = "استئناف"
     override val inLibrary = "في المكتبة"
     override val addToLibrary = "إضافة للمكتبة"
+    override val add = "إضافة"
     override val chapters = "الفصول"
     override val noMangaFound = "لا توجد مانجا متوفرة في هذا القسم"
     override val retry = "إعادة المحاولة"
@@ -346,6 +514,12 @@ object ArabicStrings : AppStrings {
     override val layoutComfortable = "شبكة مريحة"
     override val layoutCompact = "شبكة مدمجة"
     override val selectLayoutTitle = "اختر نمط العرض"
+    override val gridSizeAndLayout = "حجم الشبكة والتخطيط"
+    override val gridColumnsCount = "عدد أعمدة الشبكة"
+    override val gridColumnsAuto = "تلقائي ذكي (حسب الشاشة)"
+    override fun gridColumnsCountLabel(count: Int) = if (count <= 0) "تلقائي ذكي" else "$count أعمدة"
+    override val offlineAvailable = "متاح بدون إنترنت"
+    override val savedOffline = "محفوظ للأوفلاين"
     override val defaultReadingMode = "نمط القراءة الافتراضي"
     override val readingModeWebtoon = "ويب تون (طولي مستمر)"
     override val readingModeVerticalPaged = "صفحات عمودية"
@@ -381,6 +555,10 @@ object ArabicStrings : AppStrings {
     override val keepScreenOnDesc = "منع إيقاف تشغيل الشاشة تلقائياً أثناء القراءة"
     override val cropBorders = "قص الحواف والهوامش البيضاء"
     override val cropBordersDesc = "إزالة الهوامش الفارغة المحيطة بالصفحات تلقائياً"
+    override val readerDoubleTapZoom = "نسبة التكبير بالنقر المزدوج"
+    override val readerDoubleTapZoomDesc = "تحديد نسبة التكبير عند النقر مرتين على الشاشة (الافتراضي 1.5x)"
+    override val readerPanSensitivity = "تسارع وسرعة التحريك بإصبع واحد"
+    override val readerPanSensitivityDesc = "زيادة حساسية وتسارع تحريك الصفحة عند سحبها بإصبع واحد"
     override val pinnedSourcesTitle = "المصادر المثبتة"
     override val noPinnedSources = "لا توجد مصادر مثبتة حالياً"
     override val clearAllPinned = "إلغاء تثبيت الكل"
@@ -399,6 +577,7 @@ object ArabicStrings : AppStrings {
     override val profileAndStats = "الملف الشخصي والنشاط"
     override val totalReadingTime = "وقت القراءة"
     override val chaptersRead = "الفصول المقروءة"
+    override val read = "مقروء"
     override val pagesRead = "الصفحات"
     override val mangaRead = "الأعمال"
     override val readingStreak = "سلسلة القراءة"
@@ -461,6 +640,9 @@ object ArabicStrings : AppStrings {
     override val syncHistory = "سجل القراءة، الفصول، ورقم الصفحة"
     override val syncStats = "إحصائيات القراءة وسلاسل الأيام"
     override val syncSettings = "المصادر المثبتة وتفضيلات القراءة"
+    override val syncDownloads = "نقل الفصول المحملة"
+    override val syncDownloadsDesc = "نقل ملفات وصفحات الفصول المحملة مباشرة بين الأجهزة لتجنب إعادة تحميلها"
+    override val syncingDownloadsProgress: (Int, Int, String) -> String = { curr, total, ch -> "جاري نقل الفصول: ($curr/$total) $ch..." }
     override val syncSuccess = "تمت المزامنة بنجاح ✓"
     override val syncFailed = "فشلت المزامنة. تأكد من صحة عنوان IP وتشغيل خادم المزامنة."
     override val syncing = "جاري تبادل ومزامنة البيانات..."
@@ -511,6 +693,156 @@ object ArabicStrings : AppStrings {
     override val sortByLastRead = "حسب أحدث قراءة"
     override val openDeepAnalytics = "عرض الإحصائيات والتحليلات الدقيقة ⭢"
 
+    // Home Customization Strings (Arabic)
+    override val homeCustomizationTitle = "الشاشة الرئيسية"
+    override val homeCustomizationDesc = "ترتيب الأقسام، القسم الافتراضي، مظهر البطاقات، وشريط المتابعة"
+    override val homeDefaultSectionTitle = "القسم الافتراضي عند الفتح"
+    override val homeDefaultSectionDesc = "تحديد القسم الذي يفتح تلقائياً عند تشغيل التطبيق"
+    override val homeCardsLayoutTitle = "نمط عرض البطاقات في الرئيسية"
+    override val homeCardsLayoutDesc = "شبكة مريحة، شبكة مدمجة، أو قائمة مفصلة للأعمال"
+    override val homeContinueReadingBarTitle = "شريط متابعة القراءة السريع"
+    override val homeContinueReadingBarDesc = "إظهار شريط المانغا المقروءة مؤخراً أعلى الشاشة الرئيسية"
+    override val homeContinueReadingLimitTitle = "عدد عناصر متابعة القراءة"
+    override val homeQuickFilterPillsTitle = "كبسولات الفلترة السريعة"
+    override val homeQuickFilterPillsDesc = "إظهار أزرار فلترة المصدر والتصنيف واللغة"
+    override val homeShowFavoritesTabTitle = "تبويب المفضلة في الرئيسية"
+    override val homeShowFavoritesTabDesc = "إدراج تبويب المفضلة ضمن شريط تصنيفات الرئيسية"
+    override val homeCardCornersTitle = "استدارة زوايا البطاقات"
+    override val homeCardCornersDesc = "التحكم في درجة انحناء حواف بطاقات المانغا"
+    override val homeShowSourceBadgeTitle = "إظهار شارة اسم المصدر"
+    override val homeShowSourceBadgeDesc = "عرض شارة اسم المصدر على ملصق المانغا"
+    override val homeShowRatingBadgeTitle = "إظهار تقييم النجوم"
+    override val homeShowRatingBadgeDesc = "عرض تقييم العمل الفعلي على البطاقة إن توفر"
+    override val homeCornerSmooth = "دائري ناعم (16dp)"
+    override val homeCornerMedium = "متوسط قياسي (10dp)"
+    override val homeCornerSharp = "كلاسيكي حاد (4dp)"
+
+    // Kotatsu Exact Appearance & Main Screen Settings (Arabic)
+    override val defaultTabTitle = "التبويب الافتراضي"
+    override val defaultTabLastUsed = "آخر استخدام"
+    override val mainScreenSectionHeader = "الشاشة الرئيسية"
+    override val searchSuggestionsTitle = "اقتراحات البحث"
+    override val searchSuggestionsDesc = "مصادر المانجا، التصنيفات، عمليات البحث السابقة، المؤلفون، المصادر الأخيرة، المانجا"
+    override val mainScreenSectionsTitle = "أقسام الشاشة الرئيسية"
+    override val mainScreenSectionsDesc = "السجل، المفضلة، الاستكشاف، المستجدات، الاقتراحات، على الجهاز"
+    override val showFloatingContinueBtnTitle = "إظهار زر المتابعة العائم"
+    override val showFloatingContinueBtnDesc = "يتيح متابعة القراءة بنقرة واحدة. لن يظهر هذا الزر في الوضع المتخفي أو عندما يكون السجل فارغاً"
+    override val showLabelsInNavBarTitle = "إظهار النصوص في شريط التنقل"
+    override val floatingNavBarTitle = "شريط تنقل عائم"
+    override val floatingNavBarDesc = "استخدام تصميم شريط تنقل دائري عائم"
+    override val pinNavigationUiTitle = "تثبيت واجهة التنقل"
+    override val pinNavigationUiDesc = "عدم إخفاء شريط التنقل ومربع البحث أثناء التمرير"
+    override val exitConfirmationTitle = "تأكيد الخروج"
+    override val exitConfirmationDesc = "اضغط زر العودة مرتين للخروج من التطبيق"
+    override val pressBackAgainToExit = "اضغط مرة أخرى للخروج من التطبيق"
+    override val exploreMoreManga = "تصفح المزيد من المانغا"
+    override val browseAllManga = "عرض كل المانغا من هذا المصدر"
+    override val exploreSources = "تصفح جميع المصادر"
+
+    // Manga Details Statistics & Recommendations (Arabic)
+    override val readingProgressTitle = "إحصائيات وتقدم القراءة"
+    override val similarMangaTitle = "أعمال مشابهة قد تعجبك"
+    override val loadingGenreManga = "جاري البحث عن أعمال مشابهة..."
+    override val noMangaInGenre = "لم يتم العثور على أعمال أخرى بهذا التصنيف"
+    override val readCountLabel = "تمت قراءة"
+
+    // Download Manager Strings (Arabic)
+    override val downloads = "التنزيلات"
+    override val downloadChapter = "تنزيل الفصل"
+    override val downloaded = "تم التنزيل"
+    override val downloading = "جاري التنزيل..."
+    override val downloadQueued = "في قائمة الانتظار"
+    override val pauseAll = "إيقاف الكل مؤقتاً"
+    override val resumeAll = "استئناف الكل"
+    override val cancelAll = "إلغاء الكل"
+    override val clearCompleted = "مسح المكتملة"
+    override val deleteDownload = "حذف التنزيل"
+    override val deleteDownloadConfirm = "هل تريد بالتأكيد حذف ملفات هذا التنزيل من جهازك؟"
+    override val downloadNextChapters = "تنزيل الفصول التالية"
+    override val downloadAllUnread = "تنزيل الفصول غير المقروءة"
+    override val downloadAllChapters = "تنزيل جميع الفصول"
+    override val storageUsed = "المساحة المستخدمة"
+    override val noActiveDownloads = "لا توجد عمليات تنزيل نشطة حالياً"
+    override val noDownloadedManga = "لم تقم بتنزيل أي مانجا بعد للقراءة دون اتصال"
+    override val offlineReadingAvailable = "متاح للقراءة دون اتصال"
+    override val downloadQueueTab = "قائمة الانتظار"
+    override val downloadedMangaTab = "المانجا المحملة"
+    override val batchDownloadTitle = "تنزيل متعدد للفصول"
+
+    // Kotatsu Downloads Settings Strings (Arabic)
+    override val localMangaDirectoriesTitle = "مجلدات المانغا المحلية"
+    override val localMangaDirectoriesDesc = "إدارة مجلدات التخزين المحلية لقراءة المانجا بدون إنترنت"
+    override val downloadsFolderTitle = "مجلد التنزيلات"
+    override val internalSharedStorage = "التخزين الداخلي المشترك"
+    override val preferredDownloadFormatTitle = "صيغة التنزيل المفضلة"
+    override val downloadFormatAuto = "تلقائي"
+    override val downloadFormatCbz = "أرشيف CBZ"
+    override val downloadFormatFolder = "مجلد صور"
+    override val downloadFormatZip = "أرشيف ZIP"
+    override val downloadFormatPdf = "مستند PDF"
+    override val downloadingOverCellularTitle = "التنزيل عبر شبكة الهاتف"
+    override val cellularAllowAlways = "السماح دائماً"
+    override val cellularWifiOnly = "عبر Wi-Fi فقط"
+    override val cellularAskEveryTime = "السؤال في كل مرة"
+    override val downloadSlowdownInfo = "يمكنك تفعيل إبطاء سرعة التنزيل لكل مصدر مانغا بشكل منفرد في إعدادات المصادر لتجنب الحظر من الخادم"
+    override val disableBatteryOptimizationTitle = "تعطيل تحسين استهلاك البطارية"
+    override val disableBatteryOptimizationDesc = "يساعد في استمرار التنزيل في الخلفية دون توقف العمليات بواسطة النظام"
+    override val savingPagesHeader = "حفظ الصفحات"
+    override val defaultPageSaveDirTitle = "مجلد حفظ الصفحات الافتراضي"
+    override val notSet = "غير محدد"
+    override val askDestinationDirEveryTimeTitle = "طلب تحديد المجلد في كل مرة"
+    override val autoDeleteReadChaptersTitle = "حذف الفصول المقروءة تلقائياً"
+    override val autoDeleteReadChaptersDesc = "حذف ملفات الفصل المحمل من الجهاز فور الانتهاء من قراءته لتوفير المساحة"
+    override val deleteReadChaptersNowTitle = "حذف الفصول المقروءة الآن"
+    override val deleteReadChaptersNowDesc = "فحص وحذف جميع فصول المانجا المحملة التي تمت قراءتها يدوياً"
+    override val deleteReadChaptersForManga = "حذف الفصول المقروءة"
+    override fun deleteReadChaptersConfirmMessage(count: Int, sizeStr: String) = "هل أنت متأكد من حذف $count فصول مقروءة محملة؟ (المساحة: $sizeStr)"
+    override fun deleteReadChaptersSuccessMessage(count: Int, sizeStr: String) = "تم حذف $count فصول مقروءة بنجاح وتوفير $sizeStr"
+    override val noReadChaptersToDelete = "لا توجد فصول مقروءة محملة لحذفها حالياً."
+
+    // NSFW & Sensitive Content Privacy strings (Arabic)
+    override val nsfwPrivacyCategoryTitle = "الخصوصية والمحتوى الحساس"
+    override val nsfwPrivacyCategoryDesc = "التصفح المتخفي، استبعاد الإحصائيات، حجب الأغلفة"
+    override val nsfwIncognitoModeTitle = "التصفح المتخفي للمحتوى الحساس"
+    override val nsfwIncognitoModeDesc = "عدم حفظ المانجا الحساسة في سجل القراءة أو شريط المتابعة إطلاقاً"
+    override val nsfwExcludeStatsTitle = "استبعاد من إحصائيات القراءة"
+    override val nsfwExcludeStatsDesc = "عدم احتساب وقت القراءة أو التصنيفات الحساسة ضمن ملف الإنجازات والإحصائيات"
+    override val nsfwBlurCoversTitle = "تمويه وحجب الأغلفة الحساسة"
+    override val nsfwBlurCoversDesc = "حجب وتمويه صور وأغلفة المانجا الحساسة في القوائم والبحث والمكتبة"
+    override val nsfwSeparateCategoryTitle = "عزل في قسم خاص للخصوصية"
+    override val nsfwSeparateCategoryDesc = "فصل المانجا الحساسة في تصنيف مكتبة خاص لتجنب الظهور في القوائم العامة"
+    override val nsfwClearHistoryAndStats = "مسح فوري لسجلات المحتوى الحساس"
+    override val nsfwClearHistoryAndStatsDesc = "حذف أي سجلات أو إحصائيات سابقة متعلقة بالمانجا الحساسة بنقرة واحدة"
+    override val nsfwClearSuccess = "تم مسح جميع سجلات وإحصائيات المحتوى الحساس بنجاح"
+    override val nsfwIncognitoReaderBanner = "وضع التصفح المتخفي نشط (لن يتم حفظ السجل أو الإحصائيات)"
+    override val nsfwBadgeText = "18+ حساس"
+    override val nsfwTapToReveal = "انقر لإظهار الغلاف"
+    override val nsfwAgeConfirmTitle = "تأكيد العمر للمحتوى الحساس"
+    override val nsfwAgeConfirmMessage = "يتضمن هذا القسم أعمالاً موجهة للبالغين فقط (+18). هل تؤكد أن عمرك يتجاوز 18 عاماً وترغب في تمكين هذا المحتوى؟"
+    override val nsfwAgeConfirmButton = "أؤكد، أنا أكبر من 18 عاماً"
+    override val readIncognito = "قراءة متخفية (بدون حفظ السجل)"
+    override val readFirstChapter = "قراءة من الفصل الأول"
+    override val readLatestChapter = "قراءة أحدث فصل"
+    override val removeFromHistory = "إزالة من سجل القراءة"
+    override val removedFromHistory = "تمت الإزالة من السجل"
+    override val removeFromLibrary = "إزالة من المفضلة / المكتبة"
+    override val changeCategory = "تغيير تصنيف المكتبة"
+    override val markAllAsRead = "تحديد جميع الفصول كمقروءة"
+    override val markAllAsUnread = "تحديد جميع الفصول كغير مقروءة"
+
+    override val mangaProvidersTitle = "مزودات ومحركات المانجا"
+    override val mangaProvidersDesc = "إدارة وتفعيل محركات ومصادر المانجا في التطبيق"
+    override val providerKotatsuTitle = "محرك كوتاتسو (Kotatsu Parsers Redo)"
+    override val providerKotatsuDesc = "مكتبة كوتاتسو الشاملة التي تضم أكثر من 1000 مصدر مانجا عالمي"
+    override val providerMangaSourceTitle = "محرك مانجا سورس (Manga-Source Engine)"
+    override val providerMangaSourceDesc = "محرك فائق السرعة مع مصادر عربية وعالمية مخصصة (العاشق، مانجا ليك، مانجا ليكو، مانجابيل، لايك مانجا...)"
+    override val providerAtLeastOneRequired = "يجب إبقاء مزود واحد على الأقل مفعلاً لتمكين تصفح المانجا"
+
+    override fun percentCompleted(percent: Int) = "$percent% مكتمل"
+    override fun timeSpentOnManga(time: String) = "الوقت: $time"
+    override fun chaptersReadCount(read: Int, total: Int) = "$read من أصل $total فصول"
+    override fun pagesReadCount(count: Int) = "$count صفحة"
+    override fun mangaWithGenreTitle(genre: String) = "مانجا بتصنيف \"$genre\""
     override fun searchingInSource(source: String) = "جاري البحث في $source..."
     override fun noResultsFor(query: String) = "لا توجد نتائج مطابقة لـ \"$query\""
     override fun libraryResultsCount(count: Int) = "المكتبة ($count)"
@@ -519,6 +851,7 @@ object ArabicStrings : AppStrings {
     override fun pageFormat(page: Int) = "صفحة $page"
     override fun categoryFormat(cat: String) = "التصنيف: $cat"
     override fun languageFormat(lang: String) = "اللغة: $lang"
+    override fun downloadNextCount(count: Int) = "تنزيل $count فصول تالية"
 }
 
 object EnglishStrings : AppStrings {
@@ -547,6 +880,7 @@ object EnglishStrings : AppStrings {
     override val resumeReading = "Resume"
     override val inLibrary = "In Library"
     override val addToLibrary = "Add to Library"
+    override val add = "Add"
     override val chapters = "Chapters"
     override val noMangaFound = "No manga available in this section"
     override val retry = "Retry"
@@ -592,6 +926,12 @@ object EnglishStrings : AppStrings {
     override val layoutComfortable = "Comfortable Grid"
     override val layoutCompact = "Compact Grid"
     override val selectLayoutTitle = "Select Layout Mode"
+    override val gridSizeAndLayout = "Grid Size & Layout"
+    override val gridColumnsCount = "Grid Columns"
+    override val gridColumnsAuto = "Smart Auto"
+    override fun gridColumnsCountLabel(count: Int) = if (count <= 0) "Smart Auto" else "$count Columns"
+    override val offlineAvailable = "Available Offline"
+    override val savedOffline = "Saved for Offline"
     override val defaultReadingMode = "Default Reading Mode"
     override val readingModeWebtoon = "Webtoon"
     override val readingModeVerticalPaged = "Vertical Paged"
@@ -627,6 +967,10 @@ object EnglishStrings : AppStrings {
     override val keepScreenOnDesc = "Prevent device screen from sleeping while reading"
     override val cropBorders = "Crop Image Borders"
     override val cropBordersDesc = "Automatically trim empty white borders around pages"
+    override val readerDoubleTapZoom = "Double-Tap Zoom Scale"
+    override val readerDoubleTapZoomDesc = "Zoom level when double-tapping the screen (default 1.5x)"
+    override val readerPanSensitivity = "1-Finger Pan Sensitivity & Acceleration"
+    override val readerPanSensitivityDesc = "Increase panning speed and velocity acceleration when dragging with one finger"
     override val pinnedSourcesTitle = "Pinned Sources"
     override val noPinnedSources = "No sources pinned yet"
     override val clearAllPinned = "Clear All Pinned"
@@ -645,6 +989,7 @@ object EnglishStrings : AppStrings {
     override val profileAndStats = "Profile & Activity"
     override val totalReadingTime = "Reading Time"
     override val chaptersRead = "Chapters Read"
+    override val read = "Read"
     override val pagesRead = "Pages"
     override val mangaRead = "Titles"
     override val readingStreak = "Reading Streak"
@@ -707,6 +1052,9 @@ object EnglishStrings : AppStrings {
     override val syncHistory = "Reading History & Chapter Progress"
     override val syncStats = "Reading Stats & Streaks"
     override val syncSettings = "Pinned Sources & Preferences"
+    override val syncDownloads = "Transfer Downloaded Chapters"
+    override val syncDownloadsDesc = "Directly transfer downloaded chapter files and pages between devices to avoid re-downloading"
+    override val syncingDownloadsProgress: (Int, Int, String) -> String = { curr, total, ch -> "Transferring chapters: ($curr/$total) $ch..." }
     override val syncSuccess = "Sync Completed Successfully ✓"
     override val syncFailed = "Sync failed. Check target IP and ensure sync server is enabled."
     override val syncing = "Transferring and merging data..."
@@ -757,6 +1105,156 @@ object EnglishStrings : AppStrings {
     override val sortByLastRead = "By Last Read"
     override val openDeepAnalytics = "View Deep Analytics ⭢"
 
+    // Home Customization Strings (English)
+    override val homeCustomizationTitle = "Home Screen"
+    override val homeCustomizationDesc = "Sections priority, default category, card style & continue reading"
+    override val homeDefaultSectionTitle = "Default Section on Launch"
+    override val homeDefaultSectionDesc = "Select which category opens automatically when opening the app"
+    override val homeCardsLayoutTitle = "Home Cards Layout"
+    override val homeCardsLayoutDesc = "Comfortable Grid, Compact Grid, or Detailed List"
+    override val homeContinueReadingBarTitle = "Continue Reading Shortcuts"
+    override val homeContinueReadingBarDesc = "Show recently read manga shortcut carousel at the top of Home"
+    override val homeContinueReadingLimitTitle = "Continue Reading Item Limit"
+    override val homeQuickFilterPillsTitle = "Quick Filter Pills"
+    override val homeQuickFilterPillsDesc = "Show Source, Genre, and Language filter buttons"
+    override val homeShowFavoritesTabTitle = "Favorites Tab in Home"
+    override val homeShowFavoritesTabDesc = "Include Favorites in the top category bar"
+    override val homeCardCornersTitle = "Card Corner Curvature"
+    override val homeCardCornersDesc = "Control roundness of manga card corners"
+    override val homeShowSourceBadgeTitle = "Show Source Badge"
+    override val homeShowSourceBadgeDesc = "Display source name chip on manga posters"
+    override val homeShowRatingBadgeTitle = "Show Rating Stars"
+    override val homeShowRatingBadgeDesc = "Display star rating chip on cards if available"
+    override val homeCornerSmooth = "Smooth Rounded (16dp)"
+    override val homeCornerMedium = "Standard (10dp)"
+    override val homeCornerSharp = "Classic Sharp (4dp)"
+
+    // Kotatsu Exact Appearance & Main Screen Settings (English)
+    override val defaultTabTitle = "Default tab"
+    override val defaultTabLastUsed = "Last used"
+    override val mainScreenSectionHeader = "Main screen"
+    override val searchSuggestionsTitle = "Search suggestions"
+    override val searchSuggestionsDesc = "Manga sources, Genres, Recent queries, Authors, Suggested queries, Recent sources, Manga"
+    override val mainScreenSectionsTitle = "Main screen sections"
+    override val mainScreenSectionsDesc = "History, Favourites, Explore, Feed, Suggestions, On device"
+    override val showFloatingContinueBtnTitle = "Show floating Continue button"
+    override val showFloatingContinueBtnDesc = "Allows to continue reading in a one click. This button will not appear in incognito mode or when the history is empty"
+    override val showLabelsInNavBarTitle = "Show labels in navigation bar"
+    override val floatingNavBarTitle = "Floating navigation bar"
+    override val floatingNavBarDesc = "Use a rounded floating navigation bar style"
+    override val pinNavigationUiTitle = "Pin navigation UI"
+    override val pinNavigationUiDesc = "Do not hide navigation bar and search view on scroll"
+    override val exitConfirmationTitle = "Exit confirmation"
+    override val exitConfirmationDesc = "Press Back twice to exit the app"
+    override val pressBackAgainToExit = "Press back again to exit"
+    override val exploreMoreManga = "Browse More Manga"
+    override val browseAllManga = "View All Manga from this Source"
+    override val exploreSources = "Browse All Sources"
+
+    // Manga Details Statistics & Recommendations (English)
+    override val readingProgressTitle = "Reading Progress"
+    override val similarMangaTitle = "Similar Manga & Recommendations"
+    override val loadingGenreManga = "Finding related manga..."
+    override val noMangaInGenre = "No other manga found with this tag"
+    override val readCountLabel = "Read"
+
+    // Download Manager Strings (English)
+    override val downloads = "Downloads"
+    override val downloadChapter = "Download Chapter"
+    override val downloaded = "Downloaded"
+    override val downloading = "Downloading..."
+    override val downloadQueued = "Queued"
+    override val pauseAll = "Pause All"
+    override val resumeAll = "Resume All"
+    override val cancelAll = "Cancel All"
+    override val clearCompleted = "Clear Completed"
+    override val deleteDownload = "Delete Download"
+    override val deleteDownloadConfirm = "Are you sure you want to delete these download files from your device?"
+    override val downloadNextChapters = "Download Next Chapters"
+    override val downloadAllUnread = "Download All Unread"
+    override val downloadAllChapters = "Download All Chapters"
+    override val storageUsed = "Storage Used"
+    override val noActiveDownloads = "No active downloads currently"
+    override val noDownloadedManga = "You haven't downloaded any manga for offline reading yet"
+    override val offlineReadingAvailable = "Available for offline reading"
+    override val downloadQueueTab = "Queue"
+    override val downloadedMangaTab = "Downloaded Manga"
+    override val batchDownloadTitle = "Batch Download Chapters"
+
+    // Kotatsu Downloads Settings Strings (English)
+    override val localMangaDirectoriesTitle = "Local manga directories"
+    override val localMangaDirectoriesDesc = "Manage local folders to read manga offline"
+    override val downloadsFolderTitle = "Downloads folder"
+    override val internalSharedStorage = "Internal shared storage"
+    override val preferredDownloadFormatTitle = "Preferred download format"
+    override val downloadFormatAuto = "Automatic"
+    override val downloadFormatCbz = "CBZ Archive"
+    override val downloadFormatFolder = "Folder with Images"
+    override val downloadFormatZip = "ZIP Archive"
+    override val downloadFormatPdf = "PDF Document"
+    override val downloadingOverCellularTitle = "Downloading over cellular network"
+    override val cellularAllowAlways = "Allow always"
+    override val cellularWifiOnly = "Wi-Fi only"
+    override val cellularAskEveryTime = "Ask every time"
+    override val downloadSlowdownInfo = "You can enable download slowdown for each manga source individually in the source settings if you are having problems with server-side blocking"
+    override val disableBatteryOptimizationTitle = "Disable battery optimization"
+    override val disableBatteryOptimizationDesc = "Might help with getting the download started if you have any issues with it"
+    override val savingPagesHeader = "Saving pages"
+    override val defaultPageSaveDirTitle = "Default page save directory"
+    override val notSet = "Not set"
+    override val askDestinationDirEveryTimeTitle = "Ask for the destination dir every time"
+    override val autoDeleteReadChaptersTitle = "Auto-Delete Read Chapters"
+    override val autoDeleteReadChaptersDesc = "Automatically delete downloaded chapter files upon completion to save disk space"
+    override val deleteReadChaptersNowTitle = "Delete Read Chapters Now"
+    override val deleteReadChaptersNowDesc = "Scan and manually purge all downloaded manga chapters that have been read"
+    override val deleteReadChaptersForManga = "Delete Read Chapters"
+    override fun deleteReadChaptersConfirmMessage(count: Int, sizeStr: String) = "Are you sure you want to delete $count read downloaded chapters? (Size: $sizeStr)"
+    override fun deleteReadChaptersSuccessMessage(count: Int, sizeStr: String) = "Successfully deleted $count read chapters and freed $sizeStr"
+    override val noReadChaptersToDelete = "No read downloaded chapters found to delete."
+
+    // NSFW & Sensitive Content Privacy strings (English)
+    override val nsfwPrivacyCategoryTitle = "Privacy & 18+ Content"
+    override val nsfwPrivacyCategoryDesc = "Incognito mode, Exclude from stats, Blur covers"
+    override val nsfwIncognitoModeTitle = "Incognito Mode for 18+ Content"
+    override val nsfwIncognitoModeDesc = "Never save sensitive manga or chapters to reading history or quick continue bar"
+    override val nsfwExcludeStatsTitle = "Exclude from Reading Statistics"
+    override val nsfwExcludeStatsDesc = "Do not track reading duration, chapters, or sensitive genres in profile stats"
+    override val nsfwBlurCoversTitle = "Blur & Shield Sensitive Covers"
+    override val nsfwBlurCoversDesc = "Censor and blur NSFW covers across browse, search, and library"
+    override val nsfwSeparateCategoryTitle = "Isolate in Private Library Category"
+    override val nsfwSeparateCategoryDesc = "Separate adult manga into a distinct private category away from main tabs"
+    override val nsfwClearHistoryAndStats = "Clear All 18+ History & Stats"
+    override val nsfwClearHistoryAndStatsDesc = "Instantly purge any past traces of adult manga from history and analytics"
+    override val nsfwClearSuccess = "All sensitive history and statistics have been cleared"
+    override val nsfwIncognitoReaderBanner = "Incognito Mode Active (History & Stats tracking disabled)"
+    override val nsfwBadgeText = "18+ NSFW"
+    override val nsfwTapToReveal = "Tap to reveal cover"
+    override val nsfwAgeConfirmTitle = "Age Verification"
+    override val nsfwAgeConfirmMessage = "This section contains content intended for adults (+18). Do you confirm you are over 18 years of age?"
+    override val nsfwAgeConfirmButton = "I confirm, I am 18+"
+    override val readIncognito = "Incognito Reading (No history)"
+    override val readFirstChapter = "Read from First Chapter"
+    override val readLatestChapter = "Read Latest Chapter"
+    override val removeFromHistory = "Remove from History"
+    override val removedFromHistory = "Removed from History"
+    override val removeFromLibrary = "Remove from Library"
+    override val changeCategory = "Change Library Category"
+    override val markAllAsRead = "Mark All Chapters as Read"
+    override val markAllAsUnread = "Mark All Chapters as Unread"
+
+    override val mangaProvidersTitle = "Manga Providers & Engines"
+    override val mangaProvidersDesc = "Manage enabled manga catalog sources and parsing engines"
+    override val providerKotatsuTitle = "Kotatsu Parsers (Redo)"
+    override val providerKotatsuDesc = "Comprehensive global catalog featuring 1000+ manga sources"
+    override val providerMangaSourceTitle = "Manga-Source Engine"
+    override val providerMangaSourceDesc = "Fast engine with specialized Arabic & English sources (3asq, Manga-Lek, MangaLeko, Mangapill, LikeManga...)"
+    override val providerAtLeastOneRequired = "At least one provider must remain enabled to browse manga"
+
+    override fun percentCompleted(percent: Int) = "$percent% completed"
+    override fun timeSpentOnManga(time: String) = "Time: $time"
+    override fun chaptersReadCount(read: Int, total: Int) = "$read of $total chapters"
+    override fun pagesReadCount(count: Int) = "$count pages"
+    override fun mangaWithGenreTitle(genre: String) = "Manga in \"$genre\""
     override fun searchingInSource(source: String) = "Searching in $source..."
     override fun noResultsFor(query: String) = "No results found for \"$query\""
     override fun libraryResultsCount(count: Int) = "Library ($count)"
@@ -765,4 +1263,5 @@ object EnglishStrings : AppStrings {
     override fun pageFormat(page: Int) = "Page $page"
     override fun categoryFormat(cat: String) = "Category: $cat"
     override fun languageFormat(lang: String) = "Language: $lang"
+    override fun downloadNextCount(count: Int) = "Download Next $count Chapters"
 }

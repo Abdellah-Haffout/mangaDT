@@ -2,6 +2,7 @@ package com.abht.manga_dt.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -24,17 +25,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abht.manga_dt.data.AppSettings
+import com.abht.manga_dt.data.DownloadManager
 import com.abht.manga_dt.data.HistoryManager
 import com.abht.manga_dt.data.LibraryManager
 import com.abht.manga_dt.data.MangaSource
 import com.abht.manga_dt.data.MangaSourceManager
 import com.abht.manga_dt.data.Strings
+import com.abht.manga_dt.data.currentTimeMillis
+import com.abht.manga_dt.models.DownloadStatus
 import com.abht.manga_dt.models.HistoryEntry
 import com.abht.manga_dt.models.Manga
 import com.abht.manga_dt.ui.components.*
@@ -71,7 +84,8 @@ fun MainScaffold(
     onNavigateToHistoryItem: (HistoryEntry) -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToProfileStats: () -> Unit = {},
-    onNavigateToSync: () -> Unit = {}
+    onNavigateToSync: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {}
 ) {
     val screens = listOf(
         Screen.Home,
@@ -81,8 +95,19 @@ fun MainScaffold(
         Screen.Profile
     )
 
-    val pagerState = rememberPagerState(pageCount = { screens.size })
+    val initialPageIndex = remember {
+        when (AppSettings.defaultAppTab.uppercase()) {
+            "LIBRARY" -> 1
+            "UPDATES" -> 2
+            "BROWSE" -> 3
+            "PROFILE" -> 4
+            else -> 0
+        }
+    }
+
+    val pagerState = rememberPagerState(initialPage = initialPageIndex, pageCount = { screens.size })
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val sourceManager = remember { MangaSourceManager() }
     var sources by remember { mutableStateOf(com.abht.manga_dt.data.MangaDataCache.cachedSources ?: emptyList()) }
     var isSidebarExpanded by remember { mutableStateOf(false) }
@@ -112,6 +137,38 @@ fun MainScaffold(
 
     val activeSource = remember(filteredSources, AppSettings.pinnedSourceIds) {
         filteredSources.firstOrNull { it.id in AppSettings.pinnedSourceIds } ?: filteredSources.firstOrNull()
+    }
+
+    // --- Back Handling for Main Screen Quality of Life ---
+    // 1. If Search is active, back exits search
+    BackHandler(enabled = isSearchActive) {
+        isSearchActive = false
+        searchQuery = ""
+    }
+
+    // 2. If on any tab other than Home (e.g. Browse, Library, Updates, Profile), back returns to Home
+    BackHandler(enabled = !isSearchActive && pagerState.currentPage != 0) {
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(0)
+        }
+    }
+
+    // 3. Exit confirmation on Home tab
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+    var allowDirectExit by remember { mutableStateOf(false) }
+    BackHandler(enabled = !isSearchActive && pagerState.currentPage == 0 && AppSettings.exitConfirmation && !allowDirectExit) {
+        val now = currentTimeMillis()
+        if (now - lastBackPressTime < 2000L) {
+            allowDirectExit = true
+        } else {
+            lastBackPressTime = now
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    message = strings.pressBackAgainToExit,
+                    duration = SnackbarDuration.Short
+                )
+            }
+        }
     }
 
     // Debounced Online Search
@@ -159,25 +216,94 @@ fun MainScaffold(
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy)
     )
 
+    val density = LocalDensity.current
+    val topBarHeightDp = 68.dp
+    val bottomBarHeightDp = 80.dp
+    val topBarHeightPx = remember(density) { with(density) { topBarHeightDp.toPx() } }
+    val bottomBarHeightPx = remember(density) { with(density) { bottomBarHeightDp.toPx() } }
+
+    var topBarOffsetPx by remember { mutableFloatStateOf(0f) }
+    var bottomBarOffsetPx by remember { mutableFloatStateOf(0f) }
+
+    // When tab changes, search becomes active, or pin is enabled, reset immediately to fully visible
+    LaunchedEffect(pagerState.currentPage, isSearchActive, AppSettings.pinNavigationUi) {
+        topBarOffsetPx = 0f
+        bottomBarOffsetPx = 0f
+    }
+
+    val nestedScrollConnection = remember(topBarHeightPx, bottomBarHeightPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!AppSettings.pinNavigationUi && !isSearchActive) {
+                    val delta = available.y
+                    // delta < 0: finger moving UP (dragging content up, scrolling down) -> bars hide
+                    // delta > 0: finger moving DOWN (dragging content down, scrolling up) -> bars reveal
+                    val newTopOffset = (topBarOffsetPx + delta).coerceIn(-topBarHeightPx, 0f)
+                    val newBottomOffset = (bottomBarOffsetPx - delta).coerceIn(0f, bottomBarHeightPx)
+                    topBarOffsetPx = newTopOffset
+                    bottomBarOffsetPx = newBottomOffset
+                } else {
+                    topBarOffsetPx = 0f
+                    bottomBarOffsetPx = 0f
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (sources.isEmpty()) {
             sources = sourceManager.getAvailableSources()
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun PersistentTopSearchBar() {
-        Box(
-            modifier = Modifier
+        val currentTopBarHeightDp = with(density) {
+            ((topBarHeightPx + topBarOffsetPx).coerceAtLeast(0f)).toDp()
+        }
+        val topBarAlpha = if (topBarHeightPx > 0f) ((topBarHeightPx + topBarOffsetPx) / topBarHeightPx).coerceIn(0f, 1f) else 1f
+
+        val outerBoxModifier = if (isSearchActive) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isSearchActive) 0.dp else 16.dp, vertical = if (isSearchActive) 0.dp else 6.dp)
+                .height(currentTopBarHeightDp)
+                .clipToBounds()
+        }
+
+        Box(
+            modifier = outerBoxModifier
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (isSearchActive) Modifier.fillMaxSize() else Modifier)
+                    .graphicsLayer {
+                        if (!isSearchActive) {
+                            translationY = topBarOffsetPx
+                            alpha = topBarAlpha
+                        } else {
+                            translationY = 0f
+                            alpha = 1f
+                        }
+                    }
+                    .padding(
+                        start = if (isSearchActive) 0.dp else 16.dp,
+                        end = if (isSearchActive) 0.dp else 16.dp,
+                        top = if (isSearchActive) 0.dp else 2.dp,
+                        bottom = if (isSearchActive) 0.dp else 4.dp
+                    )
+            ) {
             SearchBar(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
                 onSearch = { /* Execute search */ },
                 active = isSearchActive,
                 onActiveChange = { isSearchActive = it },
+                windowInsets = if (isSearchActive) SearchBarDefaults.windowInsets else WindowInsets(0.dp),
                 placeholder = {
                     Text(
                         text = when {
@@ -192,6 +318,9 @@ fun MainScaffold(
                             pagerState.currentPage == 3 -> strings.sources
                             else -> strings.appName
                         },
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                     )
                 },
@@ -214,6 +343,26 @@ fun MainScaffold(
                 },
                 trailingIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val activeTasks = remember(DownloadManager.downloadTasks.size, DownloadManager.downloadTasks.map { it.status }) {
+                            DownloadManager.downloadTasks.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
+                        }
+                        val isDownloading = activeTasks.isNotEmpty()
+                        val currentTask = activeTasks.firstOrNull { it.status == DownloadStatus.DOWNLOADING } ?: activeTasks.firstOrNull()
+                        val currentProgress = currentTask?.progress ?: 0f
+
+                        // Telegram-style Active Download Indicator
+                        AnimatedVisibility(
+                            visible = isDownloading,
+                            enter = fadeIn() + scaleIn(),
+                            exit = fadeOut() + scaleOut()
+                        ) {
+                            TelegramDownloadIndicator(
+                                activeTasksCount = activeTasks.size,
+                                progress = currentProgress,
+                                onClick = onNavigateToDownloads
+                            )
+                        }
+
                         if (isSearchActive && searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
                                 Icon(
@@ -298,6 +447,14 @@ fun MainScaffold(
                                         }
                                     )
                                     DropdownMenuItem(
+                                        text = { Text(strings.downloads) },
+                                        leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                                        onClick = {
+                                            showOptionsMenu = false
+                                            onNavigateToDownloads()
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text(strings.settings) },
                                         leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                         onClick = {
@@ -376,6 +533,10 @@ fun MainScaffold(
                                         MaterialYouContinueReadingCard(
                                             entry = hist,
                                             onClick = {
+                                                isSearchActive = false
+                                                onNavigateToMangaDetails(hist.sourceId, hist.mangaUrl, hist.mangaTitle, hist.mangaCover)
+                                            },
+                                            onResumeClick = {
                                                 isSearchActive = false
                                                 onNavigateToHistoryItem(hist)
                                             },
@@ -482,6 +643,7 @@ fun MainScaffold(
             }
         }
     }
+}
 
     if (isExpanded) {
         // Desktop / Large Screen: Animated Material 3 Expandable NavigationRail / Drawer
@@ -744,12 +906,13 @@ fun MainScaffold(
                 // Persistent Top Search Bar
                 PersistentTopSearchBar()
 
-                // Content View (Horizontal Pager)
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = true
-                ) { pageIndex ->
+                if (!isSearchActive) {
+                    // Content View (Horizontal Pager)
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = true
+                    ) { pageIndex ->
                     when (screens[pageIndex]) {
                         Screen.Home -> {
                             HomeScreen(
@@ -757,98 +920,12 @@ fun MainScaffold(
                                 onMangaClick = onNavigateToMangaDetails,
                                 onNavigateToSource = onNavigateToSource,
                                 onHistoryItemClick = onNavigateToHistoryItem,
-                                onOpenSettings = onNavigateToSettings
-                            )
-                        }
-                        Screen.Library -> {
-                            LibraryScreen(
-                                onMangaClick = { manga ->
-                                    onNavigateToMangaDetails(manga.sourceId, manga.mangaUrl, manga.title, manga.thumbnailUrl)
-                                },
-                                onHistoryItemClick = onNavigateToHistoryItem,
-                                onExploreClick = {
+                                onOpenSettings = onNavigateToSettings,
+                                onExploreMoreClick = {
                                     coroutineScope.launch {
                                         pagerState.animateScrollToPage(screens.indexOf(Screen.Browse))
                                     }
-                                },
-                                showSortSheet = showLibrarySortSheet,
-                                onDismissSortSheet = { showLibrarySortSheet = false }
-                            )
-                        }
-                        Screen.Updates -> {
-                            PlaceholderScreen(Screen.Updates.getLabel())
-                        }
-                        Screen.Browse -> {
-                            BrowseScreen(
-                                sources = sources,
-                                onSourceClick = onNavigateToSource
-                            )
-                        }
-                        Screen.Profile -> {
-                            ProfileStatsScreen(
-                                showBackButton = false,
-                                onNavigateToMangaDetails = onNavigateToMangaDetails,
-                                onNavigateToReader = onNavigateToHistoryItem,
-                                onNavigateToDeepAnalytics = onNavigateToProfileStats
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Mobile / Compact Bottom NavigationBar
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            bottomBar = {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ) {
-                    screens.forEachIndexed { index, screen ->
-                        NavigationBarItem(
-                            selected = pagerState.currentPage == index,
-                            onClick = {
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(index)
                                 }
-                            },
-                            icon = { Icon(screen.icon, contentDescription = screen.getLabel()) },
-                            label = { Text(screen.getLabel()) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                                indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
-                    }
-                }
-            }
-        ) { paddingValues ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                // Persistent Top Search Bar
-                PersistentTopSearchBar()
-
-                // Content View (Horizontal Pager)
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = true
-                ) { pageIndex ->
-                    when (screens[pageIndex]) {
-                        Screen.Home -> {
-                            HomeScreen(
-                                sources = sources,
-                                onMangaClick = onNavigateToMangaDetails,
-                                onNavigateToSource = onNavigateToSource,
-                                onHistoryItemClick = onNavigateToHistoryItem,
-                                onOpenSettings = onNavigateToSettings
                             )
                         }
                         Screen.Library -> {
@@ -888,11 +965,337 @@ fun MainScaffold(
             }
         }
     }
+} else {
+        // Mobile / Compact Bottom NavigationBar
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            floatingActionButton = {
+                if (AppSettings.showFloatingContinueButton && historyItems.isNotEmpty() && pagerState.currentPage == 0) {
+                    val latest = historyItems.first()
+                    val fabAlpha = if (bottomBarHeightPx > 0f) (1f - (bottomBarOffsetPx / bottomBarHeightPx)).coerceIn(0f, 1f) else 1f
+                    ExtendedFloatingActionButton(
+                        onClick = { onNavigateToHistoryItem(latest) },
+                        icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                        text = {
+                            Text(
+                                text = latest.mangaTitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.graphicsLayer {
+                            translationY = bottomBarOffsetPx * 1.5f
+                            alpha = fabAlpha
+                        }
+                    )
+                }
+            },
+            bottomBar = {
+                if (!AppSettings.floatingNavBar) {
+                    val currentBottomBarHeightDp = with(density) {
+                        ((bottomBarHeightPx - bottomBarOffsetPx).coerceAtLeast(0f)).toDp()
+                    }
+                    val bottomBarAlpha = if (bottomBarHeightPx > 0f) (1f - (bottomBarOffsetPx / bottomBarHeightPx)).coerceIn(0f, 1f) else 1f
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(currentBottomBarHeightDp)
+                            .clipToBounds()
+                    ) {
+                        NavigationBar(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    translationY = bottomBarOffsetPx
+                                    alpha = bottomBarAlpha
+                                },
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        ) {
+                            screens.forEachIndexed { index, screen ->
+                                NavigationBarItem(
+                                    selected = pagerState.currentPage == index,
+                                    alwaysShowLabel = AppSettings.showNavBarLabels,
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    },
+                                    icon = { Icon(screen.icon, contentDescription = screen.getLabel()) },
+                                    label = if (AppSettings.showNavBarLabels) { { Text(screen.getLabel()) } } else null,
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(nestedScrollConnection)
+            ) {
+                // LAYER 1: Content Scrolling (Full height when floating navbar is active so lists visibly scroll beneath it!)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = if (isSearchActive) 0.dp else paddingValues.calculateTopPadding(),
+                            bottom = if (AppSettings.floatingNavBar || isSearchActive) 0.dp else paddingValues.calculateBottomPadding()
+                        )
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    // Persistent Top Search Bar
+                    PersistentTopSearchBar()
+
+                    if (!isSearchActive) {
+                        // Content View (Horizontal Pager)
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = true
+                        ) { pageIndex ->
+                            when (screens[pageIndex]) {
+                                Screen.Home -> {
+                                    HomeScreen(
+                                        sources = sources,
+                                        onMangaClick = onNavigateToMangaDetails,
+                                        onNavigateToSource = onNavigateToSource,
+                                        onHistoryItemClick = onNavigateToHistoryItem,
+                                        onOpenSettings = onNavigateToSettings,
+                                        onExploreMoreClick = {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(screens.indexOf(Screen.Browse))
+                                            }
+                                        }
+                                    )
+                                }
+                                Screen.Library -> {
+                                    LibraryScreen(
+                                        onMangaClick = { manga ->
+                                            onNavigateToMangaDetails(manga.sourceId, manga.mangaUrl, manga.title, manga.thumbnailUrl)
+                                        },
+                                        onHistoryItemClick = onNavigateToHistoryItem,
+                                        onExploreClick = {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(screens.indexOf(Screen.Browse))
+                                            }
+                                        },
+                                        showSortSheet = showLibrarySortSheet,
+                                        onDismissSortSheet = { showLibrarySortSheet = false }
+                                    )
+                                }
+                                Screen.Updates -> {
+                                    PlaceholderScreen(Screen.Updates.getLabel())
+                                }
+                                Screen.Browse -> {
+                                    BrowseScreen(
+                                        sources = sources,
+                                        onSourceClick = onNavigateToSource
+                                    )
+                                }
+                                Screen.Profile -> {
+                                    ProfileStatsScreen(
+                                        showBackButton = false,
+                                        onNavigateToMangaDetails = onNavigateToMangaDetails,
+                                        onNavigateToReader = onNavigateToHistoryItem,
+                                        onNavigateToDeepAnalytics = onNavigateToProfileStats
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // LAYER 2: Sleek Floating Navigation Bar Pill (Solid theme matching Popular/Latest category pills)
+                if (AppSettings.floatingNavBar && !isSearchActive) {
+                    val bottomBarAlpha = if (bottomBarHeightPx > 0f) (1f - (bottomBarOffsetPx / bottomBarHeightPx)).coerceIn(0f, 1f) else 1f
+                    Surface(
+                        shape = RoundedCornerShape(32.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 6.dp,
+                        shadowElevation = 10.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 24.dp, end = 24.dp, bottom = 14.dp)
+                            .navigationBarsPadding()
+                            .graphicsLayer {
+                                translationY = bottomBarOffsetPx * 1.5f
+                                alpha = bottomBarAlpha
+                            }
+                            .fillMaxWidth()
+                            .height(58.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            screens.forEachIndexed { index, screen ->
+                                val isSelected = pagerState.currentPage == index
+                                val itemColor by animateColorAsState(
+                                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .clickable {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(index)
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                                )
+                                                .padding(horizontal = 14.dp, vertical = if (AppSettings.showNavBarLabels) 3.dp else 6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                screen.icon,
+                                                contentDescription = screen.getLabel(),
+                                                tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        if (AppSettings.showNavBarLabels) {
+                                            Text(
+                                                text = screen.getLabel(),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = 10.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                ),
+                                                color = itemColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 fun PlaceholderScreen(name: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("$name Screen", style = MaterialTheme.typography.headlineMedium)
+    }
+}
+
+/**
+ * Telegram-style animated circular download progress indicator
+ */
+@Composable
+fun TelegramDownloadIndicator(
+    activeTasksCount: Int,
+    progress: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val bounceOffset by infiniteTransition.animateFloat(
+        initialValue = -1.5f,
+        targetValue = 1.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        modifier = modifier
+            .padding(horizontal = 4.dp)
+            .size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            // Circular Progress Ring
+            if (progress > 0f) {
+                CircularProgressIndicator(
+                    progress = { progress.coerceIn(0.05f, 1f) },
+                    modifier = Modifier.size(32.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                )
+            }
+
+            // Downward animated arrow icon
+            Icon(
+                Icons.Default.ArrowDownward,
+                contentDescription = "Downloads Active",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(15.dp)
+                    .offset(y = bounceOffset.dp)
+            )
+
+            // Badge count if multiple downloads in queue
+            if (activeTasksCount > 1) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-2).dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (activeTasksCount > 9) "9+" else "$activeTasksCount",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -54,10 +54,50 @@ actual class LocalNetworkEngine actual constructor() {
         return isRunning && serverSocket != null && !(serverSocket?.isClosed ?: true)
     }
 
+    private fun writeStringWithOptionalGzip(outStream: DataOutputStream, text: String) {
+        val rawBytes = text.toByteArray(Charsets.UTF_8)
+        if (rawBytes.size > 256) {
+            val baos = java.io.ByteArrayOutputStream()
+            val gzos = java.util.zip.GZIPOutputStream(baos)
+            gzos.write(rawBytes)
+            gzos.close()
+            val compressed = baos.toByteArray()
+            outStream.writeInt(-compressed.size)
+            outStream.write(compressed)
+        } else {
+            outStream.writeInt(rawBytes.size)
+            if (rawBytes.isNotEmpty()) {
+                outStream.write(rawBytes)
+            }
+        }
+    }
+
+    private fun readStringWithOptionalGzip(inStream: DataInputStream): String {
+        val len = inStream.readInt()
+        if (len == 0) return ""
+        val isGzip = len < 0
+        val actualLen = kotlin.math.abs(len)
+        val bytes = ByteArray(actualLen)
+        inStream.readFully(bytes)
+        return if (isGzip) {
+            val bais = java.io.ByteArrayInputStream(bytes)
+            val gzis = java.util.zip.GZIPInputStream(bais)
+            val baos = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(16384)
+            var r: Int
+            while (gzis.read(buf).also { r = it } != -1) {
+                baos.write(buf, 0, r)
+            }
+            gzis.close()
+            String(baos.toByteArray(), Charsets.UTF_8)
+        } else {
+            String(bytes, Charsets.UTF_8)
+        }
+    }
+
     actual fun startSyncServer(port: Int, onMessageReceived: (action: String, body: String) -> String): Boolean {
         if (isServerRunning()) return true
         return try {
-            // Bind to all network interfaces (0.0.0.0)
             serverSocket = ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"))
             isRunning = true
 
@@ -67,31 +107,15 @@ actual class LocalNetworkEngine actual constructor() {
                         val client = serverSocket?.accept() ?: break
                         Thread {
                             try {
-                                client.soTimeout = 20000
+                                client.soTimeout = 120_000
                                 val inStream = DataInputStream(BufferedInputStream(client.getInputStream()))
                                 val outStream = DataOutputStream(BufferedOutputStream(client.getOutputStream()))
 
-                                // Read Action
-                                val actionLen = inStream.readInt()
-                                val actionBytes = ByteArray(actionLen)
-                                inStream.readFully(actionBytes)
-                                val action = String(actionBytes, Charsets.UTF_8)
+                                val action = inStream.readUTF()
+                                val body = readStringWithOptionalGzip(inStream)
 
-                                // Read Body
-                                val bodyLen = inStream.readInt()
-                                val body = if (bodyLen > 0) {
-                                    val bodyBytes = ByteArray(bodyLen)
-                                    inStream.readFully(bodyBytes)
-                                    String(bodyBytes, Charsets.UTF_8)
-                                } else {
-                                    ""
-                                }
-
-                                // Process and Respond
                                 val response = onMessageReceived(action, body)
-                                val respBytes = response.toByteArray(Charsets.UTF_8)
-                                outStream.writeInt(respBytes.size)
-                                outStream.write(respBytes)
+                                writeStringWithOptionalGzip(outStream, response)
                                 outStream.flush()
                             } catch (_: Exception) {
                             } finally {
@@ -123,31 +147,17 @@ actual class LocalNetworkEngine actual constructor() {
     actual suspend fun sendRequest(targetIp: String, port: Int, action: String, payload: String): String? = withContext(Dispatchers.IO) {
         try {
             val socket = Socket()
-            socket.connect(InetSocketAddress(targetIp, port), 6000)
-            socket.soTimeout = 25000
+            socket.connect(InetSocketAddress(targetIp, port), 8000)
+            socket.soTimeout = 120_000
 
             val outStream = DataOutputStream(BufferedOutputStream(socket.getOutputStream()))
             val inStream = DataInputStream(BufferedInputStream(socket.getInputStream()))
 
-            // Write Action
-            val actionBytes = action.toByteArray(Charsets.UTF_8)
-            outStream.writeInt(actionBytes.size)
-            outStream.write(actionBytes)
-
-            // Write Body
-            val payloadBytes = payload.toByteArray(Charsets.UTF_8)
-            outStream.writeInt(payloadBytes.size)
-            if (payloadBytes.isNotEmpty()) {
-                outStream.write(payloadBytes)
-            }
+            outStream.writeUTF(action)
+            writeStringWithOptionalGzip(outStream, payload)
             outStream.flush()
 
-            // Read Response
-            val respLen = inStream.readInt()
-            val respBytes = ByteArray(respLen)
-            inStream.readFully(respBytes)
-            val response = String(respBytes, Charsets.UTF_8)
-
+            val response = readStringWithOptionalGzip(inStream)
             socket.close()
             response
         } catch (_: Exception) {

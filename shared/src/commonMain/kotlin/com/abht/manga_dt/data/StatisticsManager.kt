@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.abht.manga_dt.models.DailyReadingRecord
+import com.abht.manga_dt.models.DayActivity
 import com.abht.manga_dt.models.MangaReadingStats
 import com.abht.manga_dt.models.UserProfileData
 
@@ -130,6 +131,16 @@ object StatisticsManager {
         userProfile = UserProfileData(username = username, avatarId = avatarId, bio = bio)
     }
 
+    fun getMangaStats(title: String, url: String, sourceId: String = ""): MangaReadingStats? {
+        val keyWithSource = if (url.isNotBlank() && sourceId.isNotBlank()) "$sourceId::$url" else ""
+        return (if (keyWithSource.isNotBlank()) mangaStatsMap[keyWithSource] else null)
+            ?: mangaStatsMap[url]
+            ?: mangaStatsMap[title.trim().lowercase()]
+            ?: mangaStatsMap.values.firstOrNull {
+                (url.isNotBlank() && it.mangaUrl == url) || it.mangaTitle.equals(title, ignoreCase = true)
+            }
+    }
+
     fun recordReadingSession(
         mangaTitle: String,
         mangaCover: String,
@@ -138,8 +149,12 @@ object StatisticsManager {
         durationSeconds: Long,
         pagesTurned: Int,
         completedChapterUrl: String? = null,
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        isNsfw: Boolean = false
     ) {
+        if (AppSettings.nsfwExcludeFromStats && (isNsfw || AppSettings.isMangaNsfw(isNsfw, tags))) {
+            return
+        }
         if (durationSeconds <= 0 && pagesTurned <= 0 && completedChapterUrl == null) return
         val now = currentTimeMillis()
         val key = if (mangaUrl.isNotBlank()) "$sourceId::$mangaUrl" else mangaTitle.trim().lowercase()
@@ -185,6 +200,50 @@ object StatisticsManager {
         saveDailyRecords(newDailyMap)
     }
 
+    fun batchMergeStats(incomingList: List<MangaReadingStats>): Int {
+        if (incomingList.isEmpty()) return 0
+        val newMangaMap = mangaStatsMap.toMutableMap()
+        var mergedCount = 0
+
+        for (stat in incomingList) {
+            val key = stat.mangaKey.ifBlank {
+                if (stat.mangaUrl.isNotBlank()) "${stat.sourceId}::${stat.mangaUrl}" else stat.mangaTitle.trim().lowercase()
+            }
+            if (key.isBlank()) continue
+
+            val existing = newMangaMap[key]
+            if (existing == null) {
+                newMangaMap[key] = stat.copy(mangaKey = key)
+                mergedCount++
+            } else {
+                val unionChapters = existing.chaptersRead + stat.chaptersRead
+                val maxTime = maxOf(existing.totalTimeSeconds, stat.totalTimeSeconds)
+                val maxPages = maxOf(existing.totalPagesRead, stat.totalPagesRead)
+                val latestRead = maxOf(existing.lastReadTimestamp, stat.lastReadTimestamp)
+                val earliestFirst = if (existing.firstReadTimestamp > 0 && stat.firstReadTimestamp > 0) {
+                    minOf(existing.firstReadTimestamp, stat.firstReadTimestamp)
+                } else maxOf(existing.firstReadTimestamp, stat.firstReadTimestamp)
+                val maxSessions = maxOf(existing.sessionCount, stat.sessionCount)
+                val combinedTags = (existing.tags + stat.tags).distinct()
+
+                val merged = existing.copy(
+                    totalTimeSeconds = maxTime,
+                    chaptersRead = unionChapters,
+                    totalPagesRead = maxPages,
+                    lastReadTimestamp = latestRead,
+                    firstReadTimestamp = earliestFirst,
+                    sessionCount = maxSessions,
+                    tags = combinedTags
+                )
+                newMangaMap[key] = merged
+                mergedCount++
+            }
+        }
+
+        saveMangaStats(newMangaMap)
+        return mergedCount
+    }
+
     fun getTotalReadingTimeSeconds(): Long {
         return mangaStatsMap.values.sumOf { it.totalTimeSeconds }
     }
@@ -225,16 +284,45 @@ object StatisticsManager {
         return streak
     }
 
-    fun getWeeklyActivityList(): List<Pair<String, Long>> {
-        val list = mutableListOf<Pair<String, Long>>()
-        var checkTimestamp = currentTimeMillis() - 6 * 24 * 60 * 60 * 1000L
+    fun getWeeklyActivityDetails(): List<DayActivity> {
+        val list = mutableListOf<DayActivity>()
+        val now = currentTimeMillis()
+        val todayKey = getTodayDateKey(now)
+        val arDays = listOf("أحد", "إثن", "ثلا", "أرب", "خمي", "جمع", "سبت")
+        val enDays = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+
+        var checkTimestamp = now - 6 * 24 * 60 * 60 * 1000L
         for (i in 0 until 7) {
             val key = getTodayDateKey(checkTimestamp)
-            val minutes = (dailyRecordsMap[key]?.timeSeconds ?: 0L) / 60
-            list.add(key to minutes)
+            val totalDays = checkTimestamp / (1000L * 60 * 60 * 24)
+            val dayOfWeek = (((totalDays + 4) % 7 + 7) % 7).toInt()
+            val record = dailyRecordsMap[key]
+
+            val seconds = record?.timeSeconds ?: 0L
+            val pages = record?.pagesRead ?: 0
+            val minutes = when {
+                seconds > 0 -> ((seconds + 30) / 60).coerceAtLeast(if (seconds >= 10) 1L else 0L)
+                pages > 0 -> (pages / 2L).coerceAtLeast(1L)
+                else -> 0L
+            }
+
+            list.add(
+                DayActivity(
+                    dateKey = key,
+                    dayNameAr = arDays[dayOfWeek],
+                    dayNameEn = enDays[dayOfWeek],
+                    minutes = minutes,
+                    pages = pages,
+                    isToday = (key == todayKey)
+                )
+            )
             checkTimestamp += 24 * 60 * 60 * 1000L
         }
         return list
+    }
+
+    fun getWeeklyActivityList(): List<Pair<String, Long>> {
+        return getWeeklyActivityDetails().map { it.dateKey to it.minutes }
     }
 
     fun getTopGenres(): List<Pair<String, Int>> {
@@ -288,6 +376,13 @@ object StatisticsManager {
         SettingsStorage.setString("mangadt_stats_daily_data", "")
         mangaStatsMap = emptyMap()
         dailyRecordsMap = emptyMap()
+    }
+
+    fun clearNsfwStats() {
+        val newMangaMap = mangaStatsMap.filterNot { (_, stat) ->
+            AppSettings.isMangaNsfw(false, stat.tags)
+        }
+        saveMangaStats(newMangaMap)
     }
 
     fun reload() {

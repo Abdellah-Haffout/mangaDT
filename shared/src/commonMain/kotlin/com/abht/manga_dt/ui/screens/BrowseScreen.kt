@@ -30,7 +30,10 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.abht.manga_dt.data.AppSettings
 import com.abht.manga_dt.data.MangaSource
+import com.abht.manga_dt.data.MangaSourceManager
+import com.abht.manga_dt.data.mangasource.BuiltinMangaSources
 import com.abht.manga_dt.ui.models.LayoutMode
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +49,7 @@ fun BrowseScreen(
     val selectedContentType = AppSettings.browseSelectedContentType
     val pinnedSourceIds = AppSettings.pinnedSourceIds
     var showOnlyPinned by remember { mutableStateOf(false) }
+    var selectedProviderFilter by remember { mutableStateOf("ALL") }
 
     // Distinct available languages
     val availableLanguages = remember(sources) {
@@ -78,6 +82,13 @@ fun BrowseScreen(
             list = list.filter { pinnedSourceIds.contains(it.id) }
         }
 
+        // Provider Filter
+        if (selectedProviderFilter == "MANGA_SOURCE") {
+            list = list.filter { BuiltinMangaSources.isMangaSourceId(it.id) }
+        } else if (selectedProviderFilter == "KOTATSU") {
+            list = list.filter { !BuiltinMangaSources.isMangaSourceId(it.id) }
+        }
+
         // Search Query Filter
         if (searchQuery.isNotBlank()) {
             list = list.filter { 
@@ -100,7 +111,7 @@ fun BrowseScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-            // Kotatsu Style Filter Bar (Languages & Pinned & Types)
+            // Kotatsu Style Filter Bar (Languages & Pinned & Types & Providers)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -126,11 +137,34 @@ fun BrowseScreen(
                     }
                 )
 
+                // Provider Filter Chips (if both enabled)
+                if (AppSettings.enableKotatsuSources && AppSettings.enableMangaSources) {
+                    FilterChip(
+                        selected = selectedProviderFilter == "MANGA_SOURCE",
+                        onClick = {
+                            selectedProviderFilter = if (selectedProviderFilter == "MANGA_SOURCE") "ALL" else "MANGA_SOURCE"
+                        },
+                        label = { Text("⚡ manga-source") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    )
+
+                    FilterChip(
+                        selected = selectedProviderFilter == "KOTATSU",
+                        onClick = {
+                            selectedProviderFilter = if (selectedProviderFilter == "KOTATSU") "ALL" else "KOTATSU"
+                        },
+                        label = { Text("🌐 Kotatsu") }
+                    )
+                }
+
                 // Language Chips
                 val commonLanguages = listOf("ALL", "EN", "AR", "RU", "JA", "ES", "FR", "PT", "ID", "IT", "DE")
                 commonLanguages.filter { lang -> lang == "ALL" || availableLanguages.contains(lang) }.forEach { lang ->
                     FilterChip(
-                        selected = selectedLanguage == lang && !showOnlyPinned,
+                        selected = selectedLanguage == lang && !showOnlyPinned && selectedProviderFilter == "ALL",
                         onClick = {
                             showOnlyPinned = false
                             AppSettings.setBrowseLanguage(lang)
@@ -178,7 +212,8 @@ fun BrowseScreen(
                 when (layoutMode) {
                     LayoutMode.LIST -> {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = if (AppSettings.floatingNavBar) 84.dp else 0.dp)
                         ) {
                             items(
                                 items = processedSources,
@@ -199,7 +234,7 @@ fun BrowseScreen(
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = 140.dp),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(10.dp),
+                            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = if (AppSettings.floatingNavBar) 84.dp else 10.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -221,7 +256,7 @@ fun BrowseScreen(
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = 170.dp),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
+                            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = if (AppSettings.floatingNavBar) 84.dp else 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -307,6 +342,21 @@ fun KotatsuSourceListItem(
                                 text = locale.uppercase(),
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+
+                    // Manga-Source Provider Tag
+                    if (BuiltinMangaSources.isMangaSourceId(source.id)) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                text = "manga-source",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -434,6 +484,20 @@ fun KotatsuSourceComfortableGridItem(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (BuiltinMangaSources.isMangaSourceId(source.id)) {
+                    Spacer(Modifier.height(3.dp))
+                    Surface(
+                        shape = MaterialTheme.shapes.extraSmall,
+                        color = MaterialTheme.colorScheme.tertiaryContainer
+                    ) {
+                        Text(
+                            text = "manga-source",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -480,12 +544,30 @@ fun KotatsuSourceCompactGridItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                source.locale?.let { locale ->
-                    Text(
-                        text = locale.uppercase(),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    source.locale?.let { locale ->
+                        Text(
+                            text = locale.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    if (BuiltinMangaSources.isMangaSourceId(source.id)) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                text = "manga-source",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                 }
             }
             IconButton(

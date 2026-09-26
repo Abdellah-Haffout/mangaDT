@@ -4,7 +4,12 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,11 +34,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,16 +53,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.abht.manga_dt.data.AppSettings
+import com.abht.manga_dt.data.DownloadManager
 import com.abht.manga_dt.data.HistoryManager
 import com.abht.manga_dt.data.LibraryManager
 import com.abht.manga_dt.data.MangaDataCache
 import com.abht.manga_dt.data.MangaSourceManager
+import com.abht.manga_dt.data.OfflineMangaManager
 import com.abht.manga_dt.data.StatisticsManager
 import com.abht.manga_dt.data.Strings
 import com.abht.manga_dt.data.currentTimeMillis
 import com.abht.manga_dt.models.Chapter
 import com.abht.manga_dt.models.LibraryManga
 import com.abht.manga_dt.models.ReaderPage
+import com.abht.manga_dt.ui.components.BackHandler
 import com.abht.manga_dt.ui.models.ReaderBackground
 import com.abht.manga_dt.ui.models.ReaderScaleMode
 import com.abht.manga_dt.ui.models.ReadingMode
@@ -88,18 +101,101 @@ fun ReaderScreen(
     var showGoToPageDialog by remember { mutableStateOf(false) }
     var isReadyToTrackProgress by remember(sourceId, chapterUrl) { mutableStateOf(false) }
 
-    // Dynamic chapter lookup from cache
+    // Back handling for sheets & dialogs in reader
+    BackHandler(enabled = showChapterListSheet) { showChapterListSheet = false }
+    BackHandler(enabled = showSettingsSheet) { showSettingsSheet = false }
+    BackHandler(enabled = showGoToPageDialog) { showGoToPageDialog = false }
+
+    // Dynamic chapter lookup from cache, OfflineMangaManager and DownloadManager
     val cachedManga = remember(mangaUrl, sourceId, title) {
-        (if (mangaUrl.isNotBlank()) MangaDataCache.cachedMangaDetails["$sourceId::$mangaUrl"] else null)
+        OfflineMangaManager.getManga(sourceId, mangaUrl, title)
+            ?: (if (mangaUrl.isNotBlank()) MangaDataCache.cachedMangaDetails["$sourceId::$mangaUrl"] else null)
             ?: MangaDataCache.cachedMangaDetails.values.firstOrNull { m ->
                 m.title.equals(title, ignoreCase = true) || m.chapters.any { it.url == chapterUrl || it.title == chapterTitle }
             }
     }
-    val allMangaChapters = remember(cachedManga) {
-        cachedManga?.chapters?.sortedBy { it.chapterNumber } ?: emptyList()
+
+    val downloadedChaptersList = remember(mangaUrl, title, sourceId, chapterUrl) {
+        DownloadManager.downloadedChapters.values.filter {
+            (mangaUrl.isNotBlank() && it.mangaUrl == mangaUrl) ||
+            it.mangaTitle.equals(title, ignoreCase = true) ||
+            (sourceId.isNotBlank() && it.sourceId == sourceId && it.mangaTitle.equals(title, ignoreCase = true)) ||
+            it.chapterUrl == chapterUrl
+        }.map {
+            Chapter(
+                id = it.chapterUrl,
+                mangaId = it.mangaUrl.ifBlank { it.mangaTitle },
+                url = it.chapterUrl,
+                title = it.chapterTitle,
+                chapterNumber = it.chapterNumber,
+                uploadDate = if (it.downloadTimestamp > 0) it.downloadTimestamp else null
+            )
+        }.distinctBy { it.url }.sortedBy { it.chapterNumber }
     }
+
+    val initialChapters = when {
+        !cachedManga?.chapters.isNullOrEmpty() -> cachedManga!!.chapters.sortedBy { it.chapterNumber }
+        downloadedChaptersList.isNotEmpty() -> downloadedChaptersList
+        chapterUrl.isNotBlank() -> listOf(
+            Chapter(
+                id = chapterUrl,
+                mangaId = mangaUrl.ifBlank { title },
+                url = chapterUrl,
+                title = chapterTitle,
+                chapterNumber = 0f
+            )
+        )
+        else -> emptyList()
+    }
+
+    var allMangaChapters by remember(mangaUrl, sourceId, title, chapterUrl) {
+        mutableStateOf(initialChapters)
+    }
+
+    // Effect to ensure all offline downloaded chapters or full online chapter list is loaded
+    LaunchedEffect(sourceId, mangaUrl, title, chapterUrl) {
+        // 1. Sync offline downloaded chapters if list is minimal
+        val offline = DownloadManager.downloadedChapters.values.filter {
+            (mangaUrl.isNotBlank() && it.mangaUrl == mangaUrl) ||
+            it.mangaTitle.equals(title, ignoreCase = true) ||
+            (sourceId.isNotBlank() && it.sourceId == sourceId && it.mangaTitle.equals(title, ignoreCase = true)) ||
+            it.chapterUrl == chapterUrl
+        }.map {
+            Chapter(
+                id = it.chapterUrl,
+                mangaId = it.mangaUrl.ifBlank { it.mangaTitle },
+                url = it.chapterUrl,
+                title = it.chapterTitle,
+                chapterNumber = it.chapterNumber,
+                uploadDate = if (it.downloadTimestamp > 0) it.downloadTimestamp else null
+            )
+        }.distinctBy { it.url }.sortedBy { it.chapterNumber }
+
+        if (offline.isNotEmpty() && (allMangaChapters.size <= 1 || allMangaChapters.none { it.url == chapterUrl })) {
+            allMangaChapters = offline
+        }
+
+        // 2. Fetch full chapters from online source if mangaUrl is provided
+        if (mangaUrl.isNotBlank() && sourceId.isNotBlank()) {
+            try {
+                val details = sourceManager.getMangaDetails(sourceId, mangaUrl)
+                if (details != null && details.chapters.isNotEmpty()) {
+                    MangaDataCache.cachedMangaDetails["$sourceId::$mangaUrl"] = details
+                    OfflineMangaManager.saveManga(details)
+                    allMangaChapters = details.chapters.sortedBy { it.chapterNumber }
+                }
+            } catch (e: Exception) {
+                // If offline, keep offline chapters
+                if (offline.isNotEmpty()) {
+                    allMangaChapters = offline
+                }
+            }
+        }
+    }
+
     val currentChapterIndex = remember(allMangaChapters, chapterUrl, chapterTitle) {
-        allMangaChapters.indexOfFirst { it.url == chapterUrl || it.title.equals(chapterTitle, ignoreCase = true) }
+        val byUrl = allMangaChapters.indexOfFirst { it.url == chapterUrl }
+        if (byUrl >= 0) byUrl else allMangaChapters.indexOfFirst { it.title.equals(chapterTitle, ignoreCase = true) }
     }
     val resolvedPrevChapter = remember(allMangaChapters, currentChapterIndex) {
         if (currentChapterIndex > 0) allMangaChapters[currentChapterIndex - 1] else null
@@ -115,20 +211,31 @@ fun ReaderScreen(
         }
     }
 
-    // Load pages effect
+    // Load pages effect (Checks DownloadManager for offline pages first, then online source)
     LaunchedEffect(sourceId, chapterUrl) {
         if (chapterUrl.isNotBlank() && initialPages.isEmpty()) {
             isLoadingPages = true
             pageLoadError = null
             try {
-                val fetchedPages = sourceManager.getPages(sourceId, chapterUrl)
-                if (fetchedPages.isNotEmpty()) {
-                    pages = fetchedPages
+                val downloaded = com.abht.manga_dt.data.DownloadManager.getDownloadedPages(chapterUrl)
+                if (downloaded != null && downloaded.isNotEmpty()) {
+                    pages = downloaded
                 } else {
-                    pageLoadError = strings.pageFailedToLoad
+                    val fetchedPages = sourceManager.getPages(sourceId, chapterUrl)
+                    if (fetchedPages.isNotEmpty()) {
+                        pages = fetchedPages
+                    } else {
+                        pageLoadError = strings.pageFailedToLoad
+                    }
                 }
             } catch (e: Exception) {
-                pageLoadError = e.message ?: strings.pageFailedToLoad
+                // In case of network exception, retry from DownloadManager
+                val downloaded = com.abht.manga_dt.data.DownloadManager.getDownloadedPages(chapterUrl)
+                if (downloaded != null && downloaded.isNotEmpty()) {
+                    pages = downloaded
+                } else {
+                    pageLoadError = e.message ?: strings.pageFailedToLoad
+                }
             } finally {
                 isLoadingPages = false
             }
@@ -140,6 +247,8 @@ fun ReaderScreen(
     val readerScaleMode = AppSettings.readerScaleMode
     val showPagePill = AppSettings.showPageNumberPill
     val cropBorders = AppSettings.readerCropBorders
+    val doubleTapZoomScale = AppSettings.readerDoubleTapZoom
+    val panSensitivity = AppSettings.readerPanSensitivity
 
     val backgroundColor = when (readerBackground) {
         ReaderBackground.BLACK -> Color(0xFF000000)
@@ -193,16 +302,6 @@ fun ReaderScreen(
         }
     }
 
-    val currentScrollOffset by remember(readingMode) {
-        derivedStateOf {
-            if (readingMode == ReadingMode.WEBTOON) {
-                listState.firstVisibleItemScrollOffset
-            } else {
-                0
-            }
-        }
-    }
-
     fun jumpToPage(targetPage: Int) {
         val pageIdx = (targetPage - 1).coerceIn(0, totalPages - 1)
         coroutineScope.launch {
@@ -244,15 +343,24 @@ fun ReaderScreen(
         }
     }
 
-    // Live progress saving to History and Library
-    LaunchedEffect(currentPageIndex, currentScrollOffset, isReadyToTrackProgress, pages.size, chapterUrl) {
-        if (isReadyToTrackProgress && pages.isNotEmpty() && chapterUrl.isNotBlank()) {
+    val mangaTags = remember(cachedManga) { cachedManga?.tags ?: emptyList() }
+    val mangaCover = remember(cachedManga) { cachedManga?.thumbnailUrl ?: "" }
+    val isMangaNsfw = remember(cachedManga, mangaTags) { 
+        cachedManga?.isNsfw == true || AppSettings.isMangaNsfw(cachedManga?.isNsfw ?: false, mangaTags) 
+    }
+    val isIncognitoActive = isMangaNsfw && AppSettings.nsfwIncognitoMode
+
+    // Live progress saving to History and Library (triggered only on discrete page changes)
+    LaunchedEffect(currentPageIndex, isReadyToTrackProgress, pages.size, chapterUrl, isIncognitoActive) {
+        if (isReadyToTrackProgress && pages.isNotEmpty() && chapterUrl.isNotBlank() && !isIncognitoActive) {
             HistoryManager.updatePageProgress(
                 mangaTitle = title,
                 chapterUrl = chapterUrl,
                 page = currentPageIndex,
                 totalPages = pages.size,
-                scrollOffset = currentScrollOffset
+                scrollOffset = 0,
+                isNsfw = isMangaNsfw,
+                tags = mangaTags
             )
             if (mangaUrl.isNotBlank()) {
                 LibraryManager.updateProgress(
@@ -262,41 +370,62 @@ fun ReaderScreen(
                     chapterUrl = chapterUrl
                 )
             }
+            // Auto-delete read chapter if enabled and user reached the end of the chapter
+            if (currentPageIndex >= pages.size && AppSettings.autoDeleteReadChapters) {
+                if (DownloadManager.isChapterDownloaded(chapterUrl)) {
+                    DownloadManager.deleteDownloadedChapter(chapterUrl)
+                }
+            }
         }
     }
 
     // Reading Analytics Tracker (100% Local & Offline)
     var lastActiveTime by remember { mutableStateOf(currentTimeMillis()) }
     var lastRecordedPage by remember { mutableStateOf(initialPage) }
-    val mangaTags = remember(cachedManga) { cachedManga?.tags ?: emptyList() }
-    val mangaCover = remember(cachedManga) { cachedManga?.thumbnailUrl ?: "" }
 
+    // Immediate initial session record
+    LaunchedEffect(isReadyToTrackProgress) {
+        if (isReadyToTrackProgress && pages.isNotEmpty()) {
+            StatisticsManager.recordReadingSession(
+                mangaTitle = title,
+                mangaCover = mangaCover,
+                sourceId = sourceId,
+                mangaUrl = mangaUrl,
+                durationSeconds = 1L,
+                pagesTurned = 1,
+                completedChapterUrl = null,
+                tags = mangaTags,
+                isNsfw = isMangaNsfw
+            )
+        }
+    }
+
+    // Continuous time ticker
     LaunchedEffect(title, chapterUrl, isReadyToTrackProgress) {
         if (isReadyToTrackProgress) {
             var lastTick = currentTimeMillis()
             while (true) {
-                delay(5000)
+                delay(3000)
                 val now = currentTimeMillis()
-                val idleDuration = now - lastActiveTime
-                if (idleDuration < 90_000) {
-                    val elapsedSeconds = ((now - lastTick) / 1000L).coerceIn(1L, 10L)
-                    val isCompleted = currentPageIndex >= totalPages && totalPages > 1
-                    StatisticsManager.recordReadingSession(
-                        mangaTitle = title,
-                        mangaCover = mangaCover,
-                        sourceId = sourceId,
-                        mangaUrl = mangaUrl,
-                        durationSeconds = elapsedSeconds,
-                        pagesTurned = 0,
-                        completedChapterUrl = if (isCompleted) chapterUrl else null,
-                        tags = mangaTags
-                    )
-                }
+                val elapsedSeconds = ((now - lastTick) / 1000L).coerceIn(1L, 10L)
+                val isCompleted = currentPageIndex >= totalPages && totalPages > 1
+                StatisticsManager.recordReadingSession(
+                    mangaTitle = title,
+                    mangaCover = mangaCover,
+                    sourceId = sourceId,
+                    mangaUrl = mangaUrl,
+                    durationSeconds = elapsedSeconds,
+                    pagesTurned = 0,
+                    completedChapterUrl = if (isCompleted) chapterUrl else null,
+                    tags = mangaTags,
+                    isNsfw = isMangaNsfw
+                )
                 lastTick = now
             }
         }
     }
 
+    // Page turn tracker
     LaunchedEffect(currentPageIndex, isReadyToTrackProgress) {
         if (isReadyToTrackProgress && currentPageIndex != lastRecordedPage) {
             lastActiveTime = currentTimeMillis()
@@ -311,7 +440,27 @@ fun ReaderScreen(
                 durationSeconds = 0,
                 pagesTurned = deltaPages,
                 completedChapterUrl = if (isCompleted) chapterUrl else null,
-                tags = mangaTags
+                tags = mangaTags,
+                isNsfw = isMangaNsfw
+            )
+        }
+    }
+
+    // Exit flush tracker
+    DisposableEffect(title, chapterUrl) {
+        onDispose {
+            val now = currentTimeMillis()
+            val elapsed = ((now - lastActiveTime) / 1000L).coerceIn(1L, 30L)
+            StatisticsManager.recordReadingSession(
+                mangaTitle = title,
+                mangaCover = mangaCover,
+                sourceId = sourceId,
+                mangaUrl = mangaUrl,
+                durationSeconds = elapsed,
+                pagesTurned = 0,
+                completedChapterUrl = null,
+                tags = mangaTags,
+                isNsfw = isMangaNsfw
             )
         }
     }
@@ -404,70 +553,70 @@ fun ReaderScreen(
                 }
             }
         } else {
-            // --- Main Reader Content Area ---
+            // --- Main Reader Content Area with Zoom & Pan Support ---
             when (readingMode) {
                 ReadingMode.WEBTOON -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { showControls = !showControls }
+                    ZoomableWebtoonContainer(
+                        modifier = Modifier.fillMaxSize(),
+                        resetTrigger = chapterUrl,
+                        doubleTapZoomScale = doubleTapZoomScale,
+                        panSensitivity = panSensitivity,
+                        onSingleTap = { _, _ -> showControls = !showControls }
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            itemsIndexed(
+                                items = pages,
+                                key = { index, page -> "${page.pageNumber}_${page.url.ifBlank { index.toString() }}" }
+                            ) { index, page ->
+                                ReaderImageItem(
+                                    page = page,
+                                    contentScale = contentScale,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    isWebtoon = true,
+                                    cropBorders = cropBorders
                                 )
                             }
-                    ) {
-                        itemsIndexed(
-                            items = pages,
-                            key = { index, page -> "${page.pageNumber}_${page.url.ifBlank { index.toString() }}" }
-                        ) { index, page ->
-                            ReaderImageItem(
-                                page = page,
-                                contentScale = contentScale,
-                                modifier = Modifier.fillMaxWidth(),
-                                isWebtoon = true,
-                                cropBorders = cropBorders
-                            )
-                        }
 
-                        // Kotatsu End of Chapter Transition Banner in Webtoon
-                        item {
-                            EndOfChapterCard(
-                                chapterTitle = chapterTitle,
-                                nextChapter = resolvedNextChapter,
-                                prevChapter = resolvedPrevChapter,
-                                onNextClick = { if (resolvedNextChapter != null) navigateToChapter(resolvedNextChapter) },
-                                onPrevClick = { if (resolvedPrevChapter != null) navigateToChapter(resolvedPrevChapter) },
-                                onBack = onBack
-                            )
+                            // Kotatsu End of Chapter Transition Banner in Webtoon
+                            item {
+                                EndOfChapterCard(
+                                    chapterTitle = chapterTitle,
+                                    nextChapter = resolvedNextChapter,
+                                    prevChapter = resolvedPrevChapter,
+                                    onNextClick = { if (resolvedNextChapter != null) navigateToChapter(resolvedNextChapter) },
+                                    onPrevClick = { if (resolvedPrevChapter != null) navigateToChapter(resolvedPrevChapter) },
+                                    onBack = onBack
+                                )
+                            }
                         }
                     }
                 }
                 ReadingMode.RTL -> {
-                    // Japanese Manga (Right-to-Left)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        val width = size.width
-                                        when {
-                                            offset.x < width * 0.25f -> nextPage()
-                                            offset.x > width * 0.75f -> prevPage()
-                                            else -> showControls = !showControls
-                                        }
+                    // Japanese Manga (Right-to-Left) with Zoom
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        reverseLayout = true
+                    ) { pageIdx ->
+                        val page = pages.getOrNull(pageIdx)
+                        if (page != null) {
+                            ZoomablePageContainer(
+                                modifier = Modifier.fillMaxSize(),
+                                resetTrigger = page.url,
+                                doubleTapZoomScale = doubleTapZoomScale,
+                                panSensitivity = panSensitivity,
+                                onSingleTap = { offset, size ->
+                                    val width = size.width
+                                    when {
+                                        offset.x < width * 0.25f -> nextPage()
+                                        offset.x > width * 0.75f -> prevPage()
+                                        else -> showControls = !showControls
                                     }
-                                )
-                            }
-                    ) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            reverseLayout = true
-                        ) { pageIdx ->
-                            val page = pages.getOrNull(pageIdx)
-                            if (page != null) {
+                                }
+                            ) {
                                 ReaderImageItem(
                                     page = page,
                                     contentScale = contentScale,
@@ -479,29 +628,27 @@ fun ReaderScreen(
                     }
                 }
                 ReadingMode.LTR -> {
-                    // Comics / Manhwa (Left-to-Right)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        val width = size.width
-                                        when {
-                                            offset.x < width * 0.25f -> prevPage()
-                                            offset.x > width * 0.75f -> nextPage()
-                                            else -> showControls = !showControls
-                                        }
+                    // Comics / Manhwa (Left-to-Right) with Zoom
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { pageIdx ->
+                        val page = pages.getOrNull(pageIdx)
+                        if (page != null) {
+                            ZoomablePageContainer(
+                                modifier = Modifier.fillMaxSize(),
+                                resetTrigger = page.url,
+                                doubleTapZoomScale = doubleTapZoomScale,
+                                panSensitivity = panSensitivity,
+                                onSingleTap = { offset, size ->
+                                    val width = size.width
+                                    when {
+                                        offset.x < width * 0.25f -> prevPage()
+                                        offset.x > width * 0.75f -> nextPage()
+                                        else -> showControls = !showControls
                                     }
-                                )
-                            }
-                    ) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize()
-                        ) { pageIdx ->
-                            val page = pages.getOrNull(pageIdx)
-                            if (page != null) {
+                                }
+                            ) {
                                 ReaderImageItem(
                                     page = page,
                                     contentScale = contentScale,
@@ -513,22 +660,20 @@ fun ReaderScreen(
                     }
                 }
                 ReadingMode.VERTICAL_PAGED -> {
-                    // Single Page Vertical
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { showControls = !showControls }
-                                )
-                            }
-                    ) {
-                        VerticalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize()
-                        ) { pageIdx ->
-                            val page = pages.getOrNull(pageIdx)
-                            if (page != null) {
+                    // Single Page Vertical with Zoom
+                    VerticalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { pageIdx ->
+                        val page = pages.getOrNull(pageIdx)
+                        if (page != null) {
+                            ZoomablePageContainer(
+                                modifier = Modifier.fillMaxSize(),
+                                resetTrigger = page.url,
+                                doubleTapZoomScale = doubleTapZoomScale,
+                                panSensitivity = panSensitivity,
+                                onSingleTap = { _, _ -> showControls = !showControls }
+                            ) {
                                 ReaderImageItem(
                                     page = page,
                                     contentScale = contentScale,
@@ -643,6 +788,30 @@ fun ReaderScreen(
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                     )
+                                }
+                            }
+                            if (isIncognitoActive) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.VisibilityOff,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Spacer(Modifier.width(2.dp))
+                                        Text(
+                                            text = strings.nsfwBadgeText,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1042,9 +1211,94 @@ fun ReaderScreen(
                         }
                     }
 
+                    // 4. Double-Tap Zoom Scale
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = strings.readerDoubleTapZoom,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${doubleTapZoomScale}x",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = strings.readerDoubleTapZoomDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(1.25f, 1.5f, 2.0f, 2.5f, 3.0f).forEach { scaleOption ->
+                                FilterChip(
+                                    selected = doubleTapZoomScale == scaleOption,
+                                    onClick = { AppSettings.updateReaderDoubleTapZoom(scaleOption) },
+                                    label = { Text("${scaleOption}x", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    // 5. 1-Finger Pan Sensitivity & Acceleration
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = strings.readerPanSensitivity,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${panSensitivity}x",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = strings.readerPanSensitivityDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                1.0f to "1.0x",
+                                1.5f to "1.5x",
+                                2.0f to "2.0x",
+                                2.5f to "2.5x"
+                            ).forEach { (sensOption, label) ->
+                                FilterChip(
+                                    selected = panSensitivity == sensOption,
+                                    onClick = { AppSettings.updateReaderPanSensitivity(sensOption) },
+                                    label = { Text(label, fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                    // 4. Feature Toggles
+                    // 6. Feature Toggles
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         // A. Page Indicator Pill
                         Row(
@@ -1212,17 +1466,31 @@ private fun ChapterSelectorSheet(
                                     )
                                 }
 
-                                if (isCurrent) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primary
-                                    ) {
-                                        Text(
-                                            text = "Active",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (DownloadManager.isChapterDownloaded(ch.url)) {
+                                        Icon(
+                                            Icons.Default.DownloadDone,
+                                            contentDescription = "Downloaded",
+                                            tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                                            modifier = Modifier.size(16.dp)
                                         )
+                                    }
+
+                                    if (isCurrent) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary
+                                        ) {
+                                            Text(
+                                                text = "Active",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1425,6 +1693,263 @@ fun ReaderImageItem(
                         Spacer(Modifier.width(6.dp))
                         Text(strings.tapToRetry, fontSize = 12.sp)
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Kotatsu-style Zoomable & Pannable Container
+ * Supports smooth pinch-to-zoom, double-tap to zoom, drag-to-pan, and bounds clamping.
+ */
+@Composable
+fun ZoomablePageContainer(
+    modifier: Modifier = Modifier,
+    resetTrigger: Any? = null,
+    minScale: Float = 1f,
+    maxScale: Float = 5f,
+    doubleTapZoomScale: Float = 1.5f,
+    panSensitivity: Float = 1.5f,
+    onSingleTap: ((Offset, Size) -> Unit)? = null,
+    content: @Composable BoxScope.() -> Unit
+) {
+    var scale by remember(resetTrigger) { mutableStateOf(1f) }
+    var offset by remember(resetTrigger) { mutableStateOf(Offset.Zero) }
+    var containerSize by remember { mutableStateOf(Size.Zero) }
+
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val newScale = (scale * zoomChange).coerceIn(minScale, maxScale)
+        if (newScale <= 1.02f) {
+            scale = 1f
+            offset = Offset.Zero
+        } else {
+            val maxX = (containerSize.width * (newScale - 1f)) / 2f
+            val maxY = (containerSize.height * (newScale - 1f)) / 2f
+            val newOffset = Offset(
+                x = (offset.x + panChange.x).coerceIn(-maxX, maxX),
+                y = (offset.y + panChange.y).coerceIn(-maxY, maxY)
+            )
+            scale = newScale
+            offset = newOffset
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .onSizeChanged { containerSize = Size(it.width.toFloat(), it.height.toFloat()) }
+            .pointerInput(containerSize, scale, doubleTapZoomScale) {
+                detectTapGestures(
+                    onDoubleTap = { tapOffset ->
+                        if (scale > 1.05f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            val targetScale = doubleTapZoomScale
+                            val maxX = (containerSize.width * (targetScale - 1f)) / 2f
+                            val maxY = (containerSize.height * (targetScale - 1f)) / 2f
+                            val targetX = (containerSize.width / 2f - tapOffset.x) * (targetScale - 1f)
+                            val targetY = (containerSize.height / 2f - tapOffset.y) * (targetScale - 1f)
+                            scale = targetScale
+                            offset = Offset(
+                                targetX.coerceIn(-maxX, maxX),
+                                targetY.coerceIn(-maxY, maxY)
+                            )
+                        }
+                    },
+                    onTap = { tapOffset ->
+                        if (scale > 1.05f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            onSingleTap?.invoke(tapOffset, containerSize)
+                        }
+                    }
+                )
+            }
+            .pointerInput(scale, containerSize, panSensitivity) {
+                if (scale > 1.02f) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val maxX = (containerSize.width * (scale - 1f)) / 2f
+                        val maxY = (containerSize.height * (scale - 1f)) / 2f
+                        val dragMag = kotlin.math.sqrt(dragAmount.x * dragAmount.x + dragAmount.y * dragAmount.y)
+                        val velocityFactor = (1f + (dragMag / 25f).coerceAtMost(1.5f))
+                        val factor = panSensitivity * velocityFactor
+                        offset = Offset(
+                            x = (offset.x + dragAmount.x * factor).coerceIn(-maxX, maxX),
+                            y = (offset.y + dragAmount.y * factor).coerceIn(-maxY, maxY)
+                        )
+                    }
+                }
+            }
+            .transformable(state = transformState, lockRotationOnZoomPan = true)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+            content = content
+        )
+
+        // Floating Quick Reset Pill when zoomed in
+        AnimatedVisibility(
+            visible = scale > 1.15f,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xCC000000),
+                contentColor = Color.White,
+                onClick = {
+                    scale = 1f
+                    offset = Offset.Zero
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset Zoom", modifier = Modifier.size(16.dp))
+                    Text(
+                        text = "${(scale * 10).toInt() / 10f}x",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Kotatsu-style Zoomable & Pannable Container specifically designed for continuous vertical Webtoons.
+ * Supports smooth 2-finger pinch-to-zoom (up to 5x), double-tap to zoom/reset,
+ * 1-finger horizontal panning across wide pages when zoomed in, seamless vertical scrolling,
+ * and quick-reset floating pill.
+ */
+@Composable
+fun ZoomableWebtoonContainer(
+    modifier: Modifier = Modifier,
+    resetTrigger: Any? = null,
+    minScale: Float = 1f,
+    maxScale: Float = 5f,
+    doubleTapZoomScale: Float = 1.5f,
+    panSensitivity: Float = 1.5f,
+    onSingleTap: ((Offset, Size) -> Unit)? = null,
+    content: @Composable BoxScope.() -> Unit
+) {
+    var scale by remember(resetTrigger) { mutableStateOf(1f) }
+    var offsetX by remember(resetTrigger) { mutableStateOf(0f) }
+    var offsetY by remember(resetTrigger) { mutableStateOf(0f) }
+    var containerSize by remember { mutableStateOf(Size.Zero) }
+
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val newScale = (scale * zoomChange).coerceIn(minScale, maxScale)
+        if (newScale <= 1.02f) {
+            scale = 1f
+            offsetX = 0f
+            offsetY = 0f
+        } else {
+            val maxX = (containerSize.width * (newScale - 1f)) / 2f
+            val maxY = (containerSize.height * (newScale - 1f)) / 2f
+            scale = newScale
+            offsetX = (offsetX + panChange.x).coerceIn(-maxX, maxX)
+            offsetY = (offsetY + panChange.y).coerceIn(-maxY, maxY)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .onSizeChanged { containerSize = Size(it.width.toFloat(), it.height.toFloat()) }
+            .pointerInput(containerSize, scale, doubleTapZoomScale) {
+                detectTapGestures(
+                    onDoubleTap = { tapOffset ->
+                        if (scale > 1.05f) {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                        } else {
+                            val targetScale = doubleTapZoomScale
+                            val maxX = (containerSize.width * (targetScale - 1f)) / 2f
+                            val maxY = (containerSize.height * (targetScale - 1f)) / 2f
+                            val targetX = (containerSize.width / 2f - tapOffset.x) * (targetScale - 1f)
+                            val targetY = (containerSize.height / 2f - tapOffset.y) * (targetScale - 1f)
+                            scale = targetScale
+                            offsetX = targetX.coerceIn(-maxX, maxX)
+                            offsetY = targetY.coerceIn(-maxY, maxY)
+                        }
+                    },
+                    onTap = { tapOffset ->
+                        onSingleTap?.invoke(tapOffset, containerSize)
+                    }
+                )
+            }
+            .pointerInput(scale, containerSize, panSensitivity) {
+                if (scale > 1.02f) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        change.consume()
+                        val maxX = (containerSize.width * (scale - 1f)) / 2f
+                        val velocityFactor = (1f + (kotlin.math.abs(dragAmount) / 25f).coerceAtMost(1.5f))
+                        val acceleratedDelta = dragAmount * panSensitivity * velocityFactor
+                        offsetX = (offsetX + acceleratedDelta).coerceIn(-maxX, maxX)
+                    }
+                }
+            }
+            .transformable(state = transformState, lockRotationOnZoomPan = true)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
+            content = content
+        )
+
+        // Floating Quick Reset Pill when zoomed in
+        AnimatedVisibility(
+            visible = scale > 1.15f,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xCC000000),
+                contentColor = Color.White,
+                onClick = {
+                    scale = 1f
+                    offsetX = 0f
+                    offsetY = 0f
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset Zoom", modifier = Modifier.size(16.dp))
+                    Text(
+                        text = "${(scale * 10).toInt() / 10f}x",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    )
                 }
             }
         }

@@ -14,7 +14,13 @@ data class Manga(
     val rating: Float = 0f,
     val isNsfw: Boolean = false,
     val tags: List<String> = emptyList(),
-    val publicUrl: String = ""
+    val publicUrl: String = "",
+    val latestChapter: String? = null,
+    val updatedAt: String? = null,
+    val views: String? = null,
+    val releaseYear: String? = null,
+    val mangaType: String? = null,
+    val ratingCount: Int? = null
 )
 
 enum class MangaStatus {
@@ -42,7 +48,10 @@ data class DownloadTask(
     val subtitle: String,
     val progress: Float,
     val status: DownloadStatus,
-    val thumbnailUrl: String
+    val thumbnailUrl: String,
+    val sourceId: String = "",
+    val mangaUrl: String = "",
+    val chapterNumber: Float = 0f
 )
 
 enum class DownloadStatus {
@@ -114,5 +123,11 @@ data class UserProfileData(
     val bio: String = "استكشاف عوالم المانغا والويب تون الرائعة 📖✨"
 )
 
-
-
+data class DayActivity(
+    val dateKey: String,
+    val dayNameAr: String,
+    val dayNameEn: String,
+    val minutes: Long,
+    val pages: Int,
+    val isToday: Boolean
+)

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.abht.manga_dt.data.AppSettings
 import com.abht.manga_dt.data.Strings
 import com.abht.manga_dt.models.HistoryEntry
 import com.abht.manga_dt.models.Manga
@@ -96,6 +97,9 @@ fun MaterialYouSearchBar(
                     Text(
                         text = placeholderText,
                         fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.outline
                     )
                 },
@@ -238,7 +242,9 @@ fun MaterialYouFilterDropdownPill(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    showDropDownArrow: Boolean = true
 ) {
     Surface(
         onClick = onClick,
@@ -254,6 +260,15 @@ fun MaterialYouFilterDropdownPill(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp)
         ) {
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(
@@ -262,39 +277,45 @@ fun MaterialYouFilterDropdownPill(
                 ),
                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                Icons.Default.ArrowDropDown,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline
-            )
+            if (showDropDownArrow) {
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline
+                )
+            }
         }
     }
 }
 
-/**
- * Material 3 Expressive Manga Poster Card (Strict Authentic Metadata)
- */
 @Composable
 fun MaterialYouMangaPosterCard(
     manga: Manga,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cornerRadiusDp: Int = AppSettings.homeCardCornersDp,
+    showSourceBadge: Boolean = AppSettings.homeShowSourceBadge,
+    showRatingBadge: Boolean = AppSettings.homeShowRatingBadge
 ) {
     val strings = Strings.current
+    val cornerRadius = cornerRadiusDp.dp
 
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(cornerRadius),
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(0.68f)
-            .shadow(elevation = 4.dp, shape = RoundedCornerShape(16.dp)),
+            .shadow(elevation = 4.dp, shape = RoundedCornerShape(cornerRadius)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            val isMangaNsfw = manga.isNsfw || AppSettings.isMangaNsfw(manga.isNsfw, manga.tags)
+            val shouldShieldCover = isMangaNsfw && AppSettings.nsfwBlurCovers
+
             // 1. High Resolution Cover Artwork
             AsyncImage(
                 model = manga.thumbnailUrl,
@@ -303,6 +324,11 @@ fun MaterialYouMangaPosterCard(
                 modifier = Modifier.fillMaxSize(),
                 error = rememberVectorPainter(Icons.Default.BrokenImage)
             )
+
+            // NSFW Privacy Shield overlay if enabled
+            if (shouldShieldCover) {
+                NsfwCoverShield(modifier = Modifier.fillMaxSize())
+            }
 
             // 2. High Legibility Dark Gradient Overlay
             Box(
@@ -331,7 +357,7 @@ fun MaterialYouMangaPosterCard(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(topEnd = 16.dp, bottomStart = 8.dp),
+                    shape = RoundedCornerShape(topEnd = cornerRadius, bottomStart = 8.dp),
                     color = statusBg,
                     modifier = Modifier.align(Alignment.TopEnd)
                 ) {
@@ -363,51 +389,160 @@ fun MaterialYouMangaPosterCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(Modifier.height(4.dp))
+                if (showSourceBadge || (showRatingBadge && manga.rating > 0f)) {
+                    Spacer(Modifier.height(4.dp))
 
-                // Subtitle Line: Real Source Name + ONLY display Real Rating if available (> 0f)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = manga.source,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = Color.White.copy(alpha = 0.80f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    // Real Rating Badge - ONLY shown if rating is greater than 0
-                    if (manga.rating > 0f) {
-                        val ratingDisplay = if (manga.rating > 10f) {
-                            "${((manga.rating / 10f) * 10).toInt() / 10f}"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        if (showSourceBadge) {
+                            Text(
+                                text = manga.source,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = Color.White.copy(alpha = 0.80f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                         } else {
-                            "${((manga.rating) * 10).toInt() / 10f}"
+                            Spacer(Modifier.weight(1f))
                         }
 
-                        Spacer(Modifier.width(6.dp))
-
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFF5C518),
-                            modifier = Modifier.height(18.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 5.dp)
-                            ) {
-                                Text(
-                                    text = "⭐ $ratingDisplay",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    ),
-                                    color = Color.Black
-                                )
+                        // Real Rating Badge
+                        if (showRatingBadge && manga.rating > 0f) {
+                            val ratingDisplay = if (manga.rating > 10f) {
+                                "${((manga.rating / 10f) * 10).toInt() / 10f}"
+                            } else {
+                                "${((manga.rating) * 10).toInt() / 10f}"
                             }
+
+                            Spacer(Modifier.width(6.dp))
+
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFF5C518),
+                                modifier = Modifier.height(18.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 5.dp)
+                                ) {
+                                    Text(
+                                        text = "⭐ $ratingDisplay",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = Color.Black
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Material 3 Detailed Manga List Card (for List Layout Mode)
+ */
+@Composable
+fun MaterialYouMangaListCard(
+    manga: Manga,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    cornerRadiusDp: Int = AppSettings.homeCardCornersDp
+) {
+    val cornerRadius = cornerRadiusDp.dp
+
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(cornerRadius),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(100.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Cover Thumbnail
+            Card(
+                shape = RoundedCornerShape(cornerRadius.coerceAtMost(10.dp)),
+                modifier = Modifier
+                    .width(60.dp)
+                    .fillMaxHeight()
+            ) {
+                AsyncImage(
+                    model = manga.thumbnailUrl,
+                    contentDescription = manga.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    error = rememberVectorPainter(Icons.Default.BrokenImage)
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            // Details Column
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = manga.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (!manga.author.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = manga.author,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Source Pill
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = manga.source,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    if (manga.rating > 0f) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF5C518).copy(alpha = 0.9f)
+                        ) {
+                            Text(
+                                text = "⭐ ${manga.rating}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = Color.Black,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
                 }
@@ -423,6 +558,7 @@ fun MaterialYouMangaPosterCard(
 fun MaterialYouContinueReadingCard(
     entry: HistoryEntry,
     onClick: () -> Unit,
+    onResumeClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val strings = Strings.current
@@ -478,9 +614,10 @@ fun MaterialYouContinueReadingCard(
             }
 
             Surface(
+                onClick = { onResumeClick?.invoke() ?: onClick() },
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(30.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -543,6 +680,37 @@ fun MaterialYouSectionHeader(
                 Text(actionLabel, style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.width(2.dp))
                 Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Discreet Privacy & 18+ Shield Overlay for sensitive manga covers
+ */
+@Composable
+fun NsfwCoverShield(
+    modifier: Modifier = Modifier,
+    badgeText: String = "18+"
+) {
+    Box(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.88f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+            modifier = Modifier.size(34.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.VisibilityOff,
+                    contentDescription = "18+ Sensitive Content",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

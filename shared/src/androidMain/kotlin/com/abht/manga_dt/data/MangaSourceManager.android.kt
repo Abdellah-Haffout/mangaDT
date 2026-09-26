@@ -1,19 +1,25 @@
 package com.abht.manga_dt.data
 
+import com.abht.manga_dt.data.mangasource.BuiltinMangaSources
+import com.abht.manga_dt.data.mangasource.JsonMangaSourceEngine
 import com.abht.manga_dt.models.Manga
 import com.abht.manga_dt.models.MangaStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.CookieJar
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
 import org.koitharu.kotatsu.parsers.bitmap.Rect
-import org.koitharu.kotatsu.parsers.model.MangaSource as KotatsuMangaSource
 import org.koitharu.kotatsu.parsers.config.MangaSourceConfig
-import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
+import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.parsers.model.MangaSource as KotatsuMangaSource
+import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.SortOrder
-import okhttp3.Response
+import java.net.URLEncoder
 
 class AndroidMangaLoaderContext(
     override val httpClient: OkHttpClient,
@@ -61,7 +67,29 @@ actual class MangaSourceManager actual constructor() {
         .build()
     private val context = AndroidMangaLoaderContext(client, AppCookieJar)
 
+    private suspend fun executeHttpRequest(
+        url: String,
+        method: String = "GET",
+        headers: Map<String, String> = emptyMap()
+    ): String = withContext(Dispatchers.IO) {
+        val reqBuilder = okhttp3.Request.Builder().url(url)
+        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+        if (method.equals("POST", ignoreCase = true)) {
+            reqBuilder.post(ByteArray(0).toRequestBody())
+        } else {
+            reqBuilder.get()
+        }
+        client.newCall(reqBuilder.build()).execute().use { response ->
+            response.body?.string().orEmpty()
+        }
+    }
+
     actual fun getSourceBaseUrl(sourceId: String): String {
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return jsonDef.baseUrl
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull() ?: return "https://google.com"
         return try {
             val parser = context.newParserInstance(parserSource)
@@ -80,16 +108,24 @@ actual class MangaSourceManager actual constructor() {
 
     actual suspend fun getAvailableSources(): List<MangaSource> {
         val isNsfw = AppSettings.isNsfwAllowed
-        val allSources = MangaParserSource.entries.map { 
-            MangaSource(
-                id = it.name, 
-                name = it.title,
-                iconUrl = "https://www.google.com/s2/favicons?sz=64&domain=${it.name.lowercase().replace('_', '-')}.com",
-                locale = it.locale,
-                contentType = it.contentType.name,
-                isBroken = it.isBroken
-            )
-        }.sortedBy { it.name.lowercase() }
+        val kotatsuSources = if (AppSettings.enableKotatsuSources) {
+            MangaParserSource.entries.map { 
+                MangaSource(
+                    id = it.name, 
+                    name = it.title,
+                    iconUrl = "https://www.google.com/s2/favicons?sz=64&domain=${it.name.lowercase().replace('_', '-')}.com",
+                    locale = it.locale,
+                    contentType = it.contentType.name,
+                    isBroken = it.isBroken
+                )
+            }
+        } else emptyList()
+
+        val mangaSources = if (AppSettings.enableMangaSources) {
+            BuiltinMangaSources.getAllSources().map { it.toMangaSource() }
+        } else emptyList()
+
+        val allSources = (mangaSources + kotatsuSources).sortedBy { it.name.lowercase() }
 
         val filtered = if (!isNsfw) {
             allSources.filter { it.contentType != "HENTAI" && !it.name.contains("hentai", ignoreCase = true) && !it.id.contains("hentai", ignoreCase = true) }
@@ -101,6 +137,23 @@ actual class MangaSourceManager actual constructor() {
     }
 
     actual suspend fun searchManga(sourceId: String, query: String): List<Manga> {
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return try {
+                val encodedQuery = URLEncoder.encode(query, "UTF-8")
+                val targetUrl = jsonDef.search.urlTemplate
+                    .replace("{base_url}", jsonDef.baseUrl.trimEnd('/'))
+                    .replace("{query}", encodedQuery)
+                val html = executeHttpRequest(targetUrl, jsonDef.search.method)
+                val list = JsonMangaSourceEngine.extractMangaListFromHtml(html, jsonDef.search, jsonDef)
+                val isNsfw = AppSettings.isNsfwAllowed
+                if (!isNsfw) list.filterNot { isNsfwManga(it) } else list
+            } catch (e: Exception) {
+                e.printStackTrace()
+                emptyList()
+            }
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull() ?: return emptyList()
         return try {
             val parser = context.newParserInstance(parserSource)
@@ -122,6 +175,40 @@ actual class MangaSourceManager actual constructor() {
                 return if (!isNsfw) cached.filterNot { isNsfwManga(it) } else cached
             }
         }
+
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return try {
+                val targetUrl = when {
+                    jsonDef.latest != null && page == 1 -> {
+                        jsonDef.latest.urlTemplate.replace("{base_url}", jsonDef.baseUrl.trimEnd('/'))
+                    }
+                    jsonDef.search.urlTemplate.contains("wp-manga") -> {
+                        if (page == 1) "${jsonDef.baseUrl.trimEnd('/')}/?s=&post_type=wp-manga&m_orderby=views"
+                        else "${jsonDef.baseUrl.trimEnd('/')}/page/$page/?s=&post_type=wp-manga&m_orderby=views"
+                    }
+                    jsonDef.latest != null -> {
+                        jsonDef.latest.urlTemplate.replace("{base_url}", jsonDef.baseUrl.trimEnd('/')).replace("{page}", page.toString())
+                    }
+                    else -> {
+                        jsonDef.search.urlTemplate.replace("{base_url}", jsonDef.baseUrl.trimEnd('/')).replace("{query}", "").replace("{page}", page.toString())
+                    }
+                }
+                val step = jsonDef.latest ?: jsonDef.search
+                val html = executeHttpRequest(targetUrl, step.method)
+                val list = JsonMangaSourceEngine.extractMangaListFromHtml(html, step, jsonDef)
+                val isNsfw = AppSettings.isNsfwAllowed
+                val filtered = if (!isNsfw) list.filterNot { isNsfwManga(it) } else list
+                if (page == 1 && filtered.isNotEmpty()) {
+                    MangaDataCache.cachedPopularManga[sourceId] = filtered
+                }
+                filtered
+            } catch (e: Exception) {
+                e.printStackTrace()
+                emptyList()
+            }
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull() ?: return emptyList()
         return try {
             val parser = context.newParserInstance(parserSource)
@@ -143,6 +230,53 @@ actual class MangaSourceManager actual constructor() {
     actual suspend fun getMangaDetails(sourceId: String, mangaUrl: String): Manga? {
         val cacheKey = "$sourceId::$mangaUrl"
         MangaDataCache.cachedMangaDetails[cacheKey]?.let { return it }
+
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return try {
+                val cleanUrl = JsonMangaSourceEngine.normalizeUrl(mangaUrl, jsonDef.baseUrl)
+                val mangaId = cleanUrl
+                    .removePrefix(jsonDef.baseUrl)
+                    .removePrefix("/manga/")
+                    .removePrefix("manga/")
+                    .removePrefix("/")
+                    .removeSuffix("/")
+                    .trim()
+
+                val detailsUrl = if (jsonDef.details != null) {
+                    jsonDef.details.urlTemplate
+                        .replace("{base_url}", jsonDef.baseUrl.trimEnd('/'))
+                        .replace("{manga_id}", mangaId)
+                } else {
+                    cleanUrl
+                }
+                val detailsHtml = executeHttpRequest(detailsUrl, jsonDef.details?.method ?: "GET")
+                val baseManga = JsonMangaSourceEngine.extractMangaDetailsFromHtml(detailsHtml, mangaId.ifBlank { mangaUrl }, jsonDef)
+
+                val chaptersUrl = jsonDef.chapters.urlTemplate
+                    .replace("{base_url}", jsonDef.baseUrl.trimEnd('/'))
+                    .replace("{manga_id}", mangaId)
+                val chaptersHtml = try {
+                    executeHttpRequest(chaptersUrl, jsonDef.chapters.method)
+                } catch (e: Exception) {
+                    detailsHtml
+                }
+                val chapters = JsonMangaSourceEngine.extractChaptersFromHtml(
+                    if (chaptersHtml.isNotBlank()) chaptersHtml else detailsHtml,
+                    mangaId,
+                    jsonDef.chapters,
+                    jsonDef
+                )
+
+                val mapped = baseManga.copy(chapters = chapters, url = cleanUrl)
+                MangaDataCache.cachedMangaDetails[cacheKey] = mapped
+                mapped
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull() ?: return null
         return try {
             val parser = context.newParserInstance(parserSource)
@@ -184,6 +318,39 @@ actual class MangaSourceManager actual constructor() {
     actual suspend fun getPages(sourceId: String, chapterUrl: String): List<com.abht.manga_dt.models.ReaderPage> {
         val cacheKey = "$sourceId::$chapterUrl"
         MangaDataCache.cachedPages[cacheKey]?.let { return it }
+
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return try {
+                val cleanChapterUrl = JsonMangaSourceEngine.normalizeUrl(chapterUrl, jsonDef.baseUrl)
+                val chapterId = cleanChapterUrl
+                    .removePrefix(jsonDef.baseUrl)
+                    .removePrefix("/manga/")
+                    .removePrefix("/chapters/")
+                    .removePrefix("/read/")
+                    .removePrefix("/")
+                    .removeSuffix("/")
+                    .trim()
+
+                val targetUrl = if (chapterUrl.startsWith("http://") || chapterUrl.startsWith("https://")) {
+                    chapterUrl
+                } else {
+                    jsonDef.pages.urlTemplate
+                        .replace("{base_url}", jsonDef.baseUrl.trimEnd('/'))
+                        .replace("{chapter_id}", chapterId)
+                }
+                val html = executeHttpRequest(targetUrl, jsonDef.pages.method)
+                val pages = JsonMangaSourceEngine.extractPagesFromHtml(html, jsonDef.pages, jsonDef)
+                if (pages.isNotEmpty()) {
+                    MangaDataCache.cachedPages[cacheKey] = pages
+                }
+                pages
+            } catch (e: Exception) {
+                e.printStackTrace()
+                emptyList()
+            }
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull() ?: return emptyList()
         return try {
             val parser = context.newParserInstance(parserSource)
@@ -221,6 +388,16 @@ actual class MangaSourceManager actual constructor() {
     }
 
     actual suspend fun testSource(sourceId: String): String? {
+        val jsonDef = BuiltinMangaSources.findById(sourceId)
+        if (jsonDef != null) {
+            return try {
+                val list = getPopularManga(sourceId, 1)
+                if (list.isEmpty()) "Source returned empty list" else null
+            } catch (e: Exception) {
+                e.message ?: e.toString()
+            }
+        }
+
         val parserSource = runCatching { MangaParserSource.valueOf(sourceId) }.getOrNull()
             ?: return "Invalid source ID: $sourceId"
         return try {
@@ -235,6 +412,7 @@ actual class MangaSourceManager actual constructor() {
     private fun mapManga(kotatsuManga: org.koitharu.kotatsu.parsers.model.Manga): Manga {
         val authorsList = kotatsuManga.authors.filter { it.isNotBlank() }
         val authorName = if (authorsList.isNotEmpty()) authorsList.joinToString(", ") else kotatsuManga.author
+        val firstChapter = kotatsuManga.chapters?.firstOrNull()
         return Manga(
             id = kotatsuManga.id.toString(),
             title = kotatsuManga.title,
@@ -248,7 +426,8 @@ actual class MangaSourceManager actual constructor() {
             rating = kotatsuManga.rating,
             isNsfw = kotatsuManga.isNsfw,
             tags = kotatsuManga.tags.map { it.title }.filter { it.isNotBlank() },
-            publicUrl = kotatsuManga.publicUrl.ifBlank { kotatsuManga.url }
+            publicUrl = kotatsuManga.publicUrl.ifBlank { kotatsuManga.url },
+            latestChapter = firstChapter?.let { if (!it.title.isNullOrBlank()) it.title else "Ch. ${it.number}" }
         )
     }
 

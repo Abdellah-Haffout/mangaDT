@@ -9,6 +9,7 @@ actual class MangaSourceManager actual constructor() {
     actual suspend fun getMangaDetails(sourceId: String, mangaUrl: String): Manga? = null
     actual suspend fun getPages(sourceId: String, chapterUrl: String): List<com.abht.manga_dt.models.ReaderPage> = emptyList()
     actual suspend fun testSource(sourceId: String): String? = null
+    actual fun getSourceBaseUrl(sourceId: String): String = "https://google.com"
 }
 
 actual fun currentTimeMillis(): Long = 0L

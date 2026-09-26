@@ -53,10 +53,9 @@ fun App() {
     }
     val preset = com.abht.manga_dt.data.AppSettings.themePreset
     val isAmoled = com.abht.manga_dt.data.AppSettings.amoledBlack && darkTheme
-    val primarySeed = androidx.compose.ui.graphics.Color(preset.primaryColor)
 
-    val baseColorScheme = com.abht.manga_dt.ui.theme.rememberAnimatedDynamicColorScheme(
-        seedColor = primarySeed,
+    val baseColorScheme = com.abht.manga_dt.ui.theme.rememberAnimatedPresetColorScheme(
+        preset = preset,
         isDark = darkTheme,
         isAmoled = isAmoled
     )
@@ -115,7 +114,8 @@ fun App() {
                     com.abht.manga_dt.ui.screens.SettingsScreen(
                         onBackClick = { rootNavController.popBackStack() },
                         onNavigateToProfileStats = { rootNavController.navigate("deep_analytics") },
-                        onNavigateToSync = { rootNavController.navigate("sync") }
+                        onNavigateToSync = { rootNavController.navigate("sync") },
+                        onNavigateToDownloads = { rootNavController.navigate("downloads") }
                     )
                 }
 
@@ -123,6 +123,26 @@ fun App() {
                 composable("sync") {
                     com.abht.manga_dt.ui.screens.SyncScreen(
                         onBackClick = { rootNavController.popBackStack() }
+                    )
+                }
+
+                // Downloads Screen (Dedicated Full-Screen Destination)
+                composable("downloads") {
+                    com.abht.manga_dt.ui.screens.DownloadManagerScreen(
+                        onBack = { rootNavController.popBackStack() },
+                        onNavigateToMangaDetails = { sourceId, mangaUrl, title, cover ->
+                            val mangaUrlHex = mangaUrl.ifBlank { title }.toRouteHex()
+                            val titleHex = title.toRouteHex()
+                            val coverHex = cover.toRouteHex()
+                            rootNavController.navigate("manga_details/$sourceId/$mangaUrlHex/$titleHex/$coverHex")
+                        },
+                        onNavigateToReader = { info ->
+                            val chapterUrlHex = info.chapterUrl.toRouteHex()
+                            val mangaTitleHex = info.mangaTitle.toRouteHex()
+                            val chapterTitleHex = info.chapterTitle.toRouteHex()
+                            val mangaUrlHex = info.mangaUrl.toRouteHex()
+                            rootNavController.navigate("reader/${info.sourceId}/$chapterUrlHex/$mangaTitleHex/$chapterTitleHex/1/0/$mangaUrlHex")
+                        }
                     )
                 }
 
@@ -141,6 +161,9 @@ fun App() {
                         },
                         onNavigateToSync = {
                             rootNavController.navigate("sync")
+                        },
+                        onNavigateToDownloads = {
+                            rootNavController.navigate("downloads")
                         },
                         onNavigateToMangaDetails = { sourceId, mangaUrl, title, cover ->
                             val mangaUrlHex = mangaUrl.ifBlank { title }.toRouteHex()
@@ -221,6 +244,12 @@ fun App() {
                             val chapterTitleHex = chapter.title.toRouteHex()
                             val mangaUrlHex = mangaUrl.toRouteHex()
                             rootNavController.navigate("reader/$sourceId/$chapterUrlHex/$mangaTitleHex/$chapterTitleHex/$page/$offset/$mangaUrlHex")
+                        },
+                        onMangaClick = { srcId, mUrl, mTitle, mCover ->
+                            val mUrlHex = mUrl.ifBlank { mTitle }.toRouteHex()
+                            val tHex = mTitle.toRouteHex()
+                            val cHex = mCover.toRouteHex()
+                            rootNavController.navigate("manga_details/$srcId/$mUrlHex/$tHex/$cHex")
                         }
                     )
                 }

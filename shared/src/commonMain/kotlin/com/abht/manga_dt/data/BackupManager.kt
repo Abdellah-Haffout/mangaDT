@@ -359,7 +359,7 @@ object BackupManager {
         if (start == -1) return ""
         val quoteStart = json.indexOf('"', start + search.length)
         if (quoteStart == -1) return ""
-        val sb = java.lang.StringBuilder()
+        val sb = StringBuilder()
         var escape = false
         for (i in (quoteStart + 1) until json.length) {
             val c = json[i]

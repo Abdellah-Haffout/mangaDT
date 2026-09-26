@@ -2,7 +2,6 @@ package com.abht.manga_dt.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import coil3.Image
-import kotlin.math.abs
 
 actual fun extractDominantColor(image: Image): Color? {
     return runCatching {
@@ -12,11 +11,14 @@ actual fun extractDominantColor(image: Image): Color? {
         val height = bitmap.height
         if (width <= 0 || height <= 0) return null
 
-        val stepX = (width / 24).coerceAtLeast(1)
-        val stepY = (height / 24).coerceAtLeast(1)
+        val stepX = (width / 64).coerceAtLeast(1)
+        val stepY = (height / 64).coerceAtLeast(1)
 
-        var maxScore = -1f
-        var bestColor: Color? = null
+        val numBins = 4096
+        val counts = IntArray(numBins)
+        val sumR = LongArray(numBins)
+        val sumG = LongArray(numBins)
+        val sumB = LongArray(numBins)
 
         for (x in 0 until width step stepX) {
             for (y in 0 until height step stepY) {
@@ -28,18 +30,54 @@ actual fun extractDominantColor(image: Image): Color? {
                 val g = (argb ushr 8) and 0xFF
                 val b = argb and 0xFF
 
-                val color = Color(r / 255f, g / 255f, b / 255f)
-                val (_, s, l) = rgbToHsl(color)
+                val rBin = r ushr 4
+                val gBin = g ushr 4
+                val bBin = b ushr 4
+                val binIndex = (rBin shl 8) or (gBin shl 4) or bBin
 
-                if (l in 0.15f..0.85f && s > 0.15f) {
-                    val score = s * (1f - abs(l - 0.5f))
-                    if (score > maxScore) {
-                        maxScore = score
-                        bestColor = color
-                    }
+                counts[binIndex]++
+                sumR[binIndex] += r
+                sumG[binIndex] += g
+                sumB[binIndex] += b
+            }
+        }
+
+        var maxCount = 0
+        var dominantBin = -1
+
+        var maxCountAll = 0
+        var dominantBinAll = -1
+
+        for (i in 0 until numBins) {
+            val count = counts[i]
+            if (count > maxCountAll) {
+                maxCountAll = count
+                dominantBinAll = i
+            }
+
+            if (count > 0) {
+                val r = (sumR[i] / count).toInt()
+                val g = (sumG[i] / count).toInt()
+                val b = (sumB[i] / count).toInt()
+                val isExtremeBlack = r < 16 && g < 16 && b < 16
+                val isExtremeWhite = r > 242 && g > 242 && b > 242
+
+                if (!isExtremeBlack && !isExtremeWhite && count > maxCount) {
+                    maxCount = count
+                    dominantBin = i
                 }
             }
         }
-        bestColor
+
+        val bestBin = if (dominantBin != -1) dominantBin else dominantBinAll
+        if (bestBin != -1 && counts[bestBin] > 0) {
+            val count = counts[bestBin].toFloat()
+            val finalR = (sumR[bestBin] / count) / 255f
+            val finalG = (sumG[bestBin] / count) / 255f
+            val finalB = (sumB[bestBin] / count) / 255f
+            Color(finalR, finalG, finalB)
+        } else {
+            null
+        }
     }.getOrNull()
 }

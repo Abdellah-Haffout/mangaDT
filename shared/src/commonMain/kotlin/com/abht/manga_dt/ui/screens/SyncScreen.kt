@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abht.manga_dt.data.AppLanguage
 import com.abht.manga_dt.data.AppSettings
+import com.abht.manga_dt.data.DownloadManager
 import com.abht.manga_dt.data.LocalSyncManager
 import com.abht.manga_dt.data.Strings
 import kotlinx.coroutines.launch
@@ -397,12 +398,28 @@ fun SyncScreen(
                             onCheckedChange = { LocalSyncManager.syncOptions = syncOptions.copy(syncSettings = it) },
                             icon = Icons.Default.Tune
                         )
+
+                        val downloadedCount = DownloadManager.downloadedChapters.size
+                        val totalDownloadedBytes = DownloadManager.getTotalStorageUsed()
+                        val downloadsBadge = if (downloadedCount > 0) {
+                            "$downloadedCount (${DownloadManager.formatBytes(totalDownloadedBytes)})"
+                        } else null
+
+                        SyncOptionRow(
+                            title = strings.syncDownloads,
+                            subtitle = strings.syncDownloadsDesc,
+                            badge = downloadsBadge,
+                            checked = syncOptions.syncDownloads,
+                            onCheckedChange = { LocalSyncManager.syncOptions = syncOptions.copy(syncDownloads = it) },
+                            icon = Icons.Default.FolderZip
+                        )
                     }
                 }
             }
 
             // 5. LIVE SYNC FEEDBACK BANNER
-            if (isSyncing || syncResultStatus != null) {
+            val currentStatus = LocalSyncManager.lastSyncStatus
+            if (isSyncing || syncResultStatus != null || !currentStatus.isNullOrBlank()) {
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -420,7 +437,11 @@ fun SyncScreen(
                         ) {
                             if (isSyncing) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                Text(strings.syncing, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = currentStatus?.takeIf { it.startsWith("جاري") || it.startsWith("Transferring") } ?: strings.syncing,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             } else {
                                 Icon(
                                     if (isSuccessStatus) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
@@ -428,7 +449,7 @@ fun SyncScreen(
                                     tint = if (isSuccessStatus) Color(0xFF00C853) else MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    text = syncResultStatus ?: "",
+                                    text = syncResultStatus ?: currentStatus ?: "",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = if (isSuccessStatus) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer
@@ -502,7 +523,9 @@ private fun SyncOptionRow(
     title: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    subtitle: String? = null,
+    badge: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -513,11 +536,36 @@ private fun SyncOptionRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
-            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(text = title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    if (badge != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
         }
         Checkbox(checked = checked, onCheckedChange = onCheckedChange)
     }
