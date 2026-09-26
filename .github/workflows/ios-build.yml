@@ -24,12 +24,18 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Select Xcode 16
+        run: |
+          XCODE_16=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
+          if [ -n "$XCODE_16" ]; then
+            echo "Switching to $XCODE_16"
+            sudo xcode-select -s "$XCODE_16/Contents/Developer"
+          fi
+          xcodebuild -version
+
       - name: Build Shared Kotlin Multiplatform Framework
         run: |
           ./gradlew :shared:compileKotlinIosArm64 :shared:compileKotlinIosSimulatorArm64
-
-      - name: Verify Xcode Version
-        run: xcodebuild -version
 
       - name: Build iOS App (Archive / Release)
         run: |
@@ -47,18 +53,19 @@ jobs:
       - name: Package Application (.zip / .ipa)
         run: |
           mkdir -p build/artifacts
-          APP_PATH=$(find build/ios-output -name "MangaDT.app" -type d | head -n 1)
-          if [ -d "$APP_PATH" ]; then
-            echo "Found app at $APP_PATH"
-            # Create Payload folder for standard IPA packaging
+          APP_PATH=$(find build/ios-output -name "*.app" -type d | head -n 1)
+          echo "Found app at: $APP_PATH"
+          if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
             mkdir -p build/Payload
             cp -R "$APP_PATH" build/Payload/
             cd build
-            zip -r artifacts/MangaDT-unsigned.ipa Payload
-            zip -r artifacts/MangaDT.app.zip $(basename "$APP_PATH")
+            zip -r artifacts/MangaDT.ipa Payload
+            zip -r artifacts/MangaDT.app.zip Payload/*.app
             cd ..
+            ls -la build/artifacts
           else
-            echo "Error: MangaDT.app not found"
+            echo "Error: .app not found in build/ios-output"
+            find build/ios-output || true
             exit 1
           fi
 
